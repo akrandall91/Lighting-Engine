@@ -6,7 +6,14 @@ async function loadGoogleMaps() {
   if (window.google?.maps) return window.google.maps;
   if (mapsPromise) return mapsPromise;
   mapsPromise = (async () => {
+    if (window.location.hostname.endsWith('github.io')) {
+      throw new Error('Opening the secure Render application...');
+    }
     const configResponse = await fetch('/api/client-config', { credentials: 'same-origin' });
+    const contentType = configResponse.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      throw new Error('The secure map server is not available on this address.');
+    }
     const config = await configResponse.json();
     if (!config.googleMapsBrowserKey) throw new Error('Google Maps browser key is not configured.');
     return new Promise((resolve, reject) => {
@@ -192,4 +199,3 @@ export function drawSideElevation(canvas, state, result) {
 function escapeText(value) {
   return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
-
