@@ -1,0 +1,11 @@
+{
+  "name": "sels-lighting-engine",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:ies": "node scripts/build-ies-registry.mjs",
+    "test": "node tests/run-tests.mjs",
+    "start": "node scripts/serve.mjs 8000"
+  }
+}

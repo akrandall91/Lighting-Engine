@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Planning-level SELS solar lighting and photometric sizing tool.">
+  <title>SELS Lighting Engine</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to design</a>
+  <header class="topbar">
+    <div>
+      <span class="eyebrow">SELS SOLAR</span>
+      <h1>Lighting Engine</h1>
+    </div>
+    <div class="top-actions">
+      <span id="saveStatus" class="save-status">Autosaved</span>
+      <button id="resetProject" class="button ghost" type="button">New project</button>
+    </div>
+  </header>
+
+  <main id="main" class="workspace">
+    <section class="designer" aria-label="Project designer">
+      <nav class="step-nav" aria-label="Design steps">
+        <button class="step-tab active" data-step-target="1"><span>1</span>Project</button>
+        <button class="step-tab" data-step-target="2"><span>2</span>Lighting</button>
+        <button class="step-tab" data-step-target="3"><span>3</span>Solar + loads</button>
+        <button class="step-tab" data-step-target="4"><span>4</span>Results</button>
+      </nav>
+
+      <div id="stepContent" aria-live="polite"></div>
+
+      <div class="step-actions">
+        <button id="backButton" class="button ghost" type="button">Back</button>
+        <button id="nextButton" class="button primary" type="button">Continue</button>
+      </div>
+    </section>
+
+    <aside class="summary" aria-label="Live design summary">
+      <div class="summary-head">
+        <span class="eyebrow">LIVE DESIGN</span>
+        <span id="confidenceBadge" class="badge estimate">Planning estimate</span>
+      </div>
+      <h2 id="summaryProduct">Select a lighting goal</h2>
+      <div id="summaryMetrics" class="metric-list"></div>
+      <div id="summaryStatus"></div>
+    </aside>
+  </main>
+
+  <template id="helpTemplate">
+    <dialog class="help-dialog">
+      <button class="dialog-close" aria-label="Close help">×</button>
+      <div class="dialog-content"></div>
+    </dialog>
+  </template>
+
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>
