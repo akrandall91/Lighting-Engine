@@ -2,6 +2,12 @@ async function request(path, params = {}) {
   const url = new URL(path, window.location.origin);
   Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
   const response = await fetch(url, { credentials: 'same-origin' });
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new Error(window.location.hostname.endsWith('github.io')
+      ? 'Secure API server unavailable: GitHub Pages cannot run the password or API backend.'
+      : 'Secure API server returned a non-JSON response.');
+  }
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
   return data;
@@ -24,4 +30,3 @@ export async function getLocationContext({ latitude, longitude, stateCode }) {
   }));
   return Object.fromEntries(entries);
 }
-

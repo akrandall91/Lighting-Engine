@@ -285,10 +285,10 @@ function renderStep1() {
       <div class="scene-empty"><span class="eyebrow">IMMERSIVE SITE VIEW</span><strong>Drop into the installation scene</strong>
         <p>Search the site, place the pole or shelter, confirm solar south, and review buildings, trees, terrain and likely shade. The live scene activates when restricted map credentials and backend services are connected.</p>
         <div class="api-pills">
-          <span>${apiStatus.googleMapsBrowser ? 'Google Maps connected' : 'Google Maps not configured'}</span>
-          <span>${apiStatus.nrel ? 'NREL connected' : 'NREL not configured'}</span>
-          <span>${apiStatus.census ? 'Census connected' : 'Census not configured'}</span>
-          <span>${apiStatus.eia ? 'EIA connected' : 'EIA not configured'}</span>
+          <span>${apiStatus.googleMapsBrowser ? 'Google Maps configured' : 'Google Maps not configured'}</span>
+          <span>${apiStatus.nrel ? 'NREL configured' : 'NREL not configured'}</span>
+          <span>${apiStatus.census ? 'Census configured' : 'Census not configured'}</span>
+          <span>${apiStatus.eia ? 'EIA configured' : 'EIA not configured'}</span>
           <span>Open-Meteo available</span>
         </div>
         <button class="button primary scene-refresh" type="button" id="refreshLocationData">Refresh location data</button>

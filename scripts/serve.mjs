@@ -112,8 +112,33 @@ async function api(req, res, url) {
       if (!env.NREL_API_KEY) return sendJson(res, 503, { error: 'NREL key is not configured.' });
       const endpoint = new URL('https://developer.nrel.gov/api/solar/solar_resource/v1.json');
       endpoint.search = new URLSearchParams({ api_key: env.NREL_API_KEY, lat: String(lat), lon: String(lng) });
-      const data = await proxyJson(endpoint);
-      return sendJson(res, 200, { source: 'NREL Solar Resource', monthly: data.outputs?.avg_lat_tilt?.monthly || null });
+      try {
+        const data = await proxyJson(endpoint);
+        const monthly = data.outputs?.avg_lat_tilt?.monthly;
+        if (!monthly) throw new Error(data.errors?.join(', ') || 'NREL returned no monthly solar values.');
+        return sendJson(res, 200, { source: 'NREL Solar Resource', monthly });
+      } catch (nrelError) {
+        const fallback = new URL('https://archive-api.open-meteo.com/v1/archive');
+        fallback.search = new URLSearchParams({
+          latitude: String(lat), longitude: String(lng), start_date: '2015-01-01',
+          end_date: '2024-12-31', daily: 'shortwave_radiation_sum', timezone: 'auto',
+        });
+        const weather = await proxyJson(fallback);
+        const buckets = Array.from({ length: 12 }, () => []);
+        (weather.daily?.time || []).forEach((date, index) => {
+          const value = Number(weather.daily.shortwave_radiation_sum?.[index]);
+          if (Number.isFinite(value)) buckets[Number(date.slice(5, 7)) - 1].push(value);
+        });
+        const keys = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+        const monthly = Object.fromEntries(keys.map((key, index) => [
+          key, buckets[index].reduce((total, value) => total + value, 0) / Math.max(1, buckets[index].length),
+        ]));
+        return sendJson(res, 200, {
+          source: 'Open-Meteo solar radiation fallback',
+          monthly,
+          warning: `NREL unavailable: ${nrelError.message}`,
+        });
+      }
     }
     if (url.pathname === '/api/climate') {
       const endpoint = new URL('https://archive-api.open-meteo.com/v1/archive');
@@ -153,8 +178,9 @@ async function api(req, res, url) {
       if (!/^[A-Z]{2}$/.test(state)) return sendJson(res, 400, { error: 'Two-letter state is required.' });
       const endpoint = new URL('https://api.eia.gov/v2/electricity/retail-sales/data/');
       endpoint.search = new URLSearchParams({
-        api_key: env.EIA_API_KEY, frequency: 'annual', 'data[0]': 'price',
-        'facets[stateid][]': state, 'facets[sectorid][]': 'COM', sort: 'period', direction: 'desc', length: '1',
+        api_key: env.EIA_API_KEY, frequency: 'monthly', 'data[]': 'price',
+        'facets[stateid][]': state, 'facets[sectorid][]': 'COM',
+        'sort[0][column]': 'period', 'sort[0][direction]': 'desc', length: '1',
       });
       const data = await proxyJson(endpoint);
       return sendJson(res, 200, { source: 'EIA retail electricity sales', record: data.response?.data?.[0] || null });
