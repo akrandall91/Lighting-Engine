@@ -17,6 +17,7 @@ import {
 import { compareProjectAlternatives, SURFACE_TYPES } from './project-economics.js';
 import { calculateSustainability } from './sustainability.js';
 import { getApiStatus, getLocationContext } from './api-client.js';
+import { drawPhotometricPlan, drawSideElevation, renderSiteMap } from './visualization.js';
 
 const STORAGE_KEY = 'akrd-lighting-engine-v3';
 const state = loadState();
@@ -281,8 +282,9 @@ function renderStep1() {
       ${field('Project length (ft)', 'lengthFt', state.lengthFt, { min: 10, max: 10000 })}
       ${field('Illuminated width (ft)', 'widthFt', state.widthFt, { min: 4, max: 500 })}
     </div>
-    <div class="scene-shell" aria-label="Immersive 3D site workspace">
-      <div class="scene-empty"><span class="eyebrow">IMMERSIVE SITE VIEW</span><strong>Drop into the installation scene</strong>
+    <div class="scene-shell" aria-label="Immersive site workspace">
+      <div id="siteMap" class="site-map"></div>
+      <div class="scene-empty scene-overlay"><span class="eyebrow">IMMERSIVE SITE VIEW</span><strong>Mapped pole scene</strong>
         <p>Search the site, place the pole or shelter, confirm solar south, and review buildings, trees, terrain and likely shade. The live scene activates when restricted map credentials and backend services are connected.</p>
         <div class="api-pills">
           <span>${apiStatus.googleMapsBrowser ? 'Google Maps configured' : 'Google Maps not configured'}</span>
@@ -338,6 +340,12 @@ function renderStep2() {
       <div><span>Actual spacing</span><strong>${round(photometricResult.layout.actualSpacing)} ft</strong></div>
       <div><span>Average</span><strong>${round(photometricResult.avgFc, 2)} FC</strong></div>
       <div><span>Minimum</span><strong>${round(photometricResult.minFc, 2)} FC</strong></div>
+    </div>
+    <div class="visual-grid">
+      <article class="visual-card"><div><span class="eyebrow">IES POINT-BY-POINT</span><h3>Photometric coverage</h3></div>
+        <canvas id="photometricPlan" width="1050" height="470" aria-label="Point-by-point foot-candle heatmap"></canvas></article>
+      <article class="visual-card"><div><span class="eyebrow">INSTALLED FORM</span><h3>Pole side elevation</h3></div>
+        <canvas id="sideElevation" width="1050" height="360" aria-label="Pole and lighting side elevation"></canvas></article>
     </div>
   </section>`;
 }
@@ -510,7 +518,15 @@ function render() {
   document.querySelector('#nextButton').textContent = state.step === 5 ? 'Print report' : 'Continue';
   renderSummary();
   wireStep();
+  initializeVisuals();
   saveState();
+}
+
+function initializeVisuals() {
+  const siteMap = document.querySelector('#siteMap');
+  if (siteMap) renderSiteMap(siteMap, state, photometricResult.layout);
+  drawPhotometricPlan(document.querySelector('#photometricPlan'), state, photometricResult);
+  drawSideElevation(document.querySelector('#sideElevation'), state, photometricResult);
 }
 
 function renderSummary() {
