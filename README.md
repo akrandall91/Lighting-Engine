@@ -1,4 +1,4 @@
-# SELS Lighting Engine
+# AKRD Lighting Engine
 
 A browser-based planning tool that connects measured luminaire photometry with seasonal off-grid solar, battery, and auxiliary-load sizing.
 
@@ -51,7 +51,7 @@ Tests cover IES parsing, candela interpolation, endpoint-inclusive pole counts, 
 
 The engine is a planning model, not stamped engineering.
 
-Before procurement, SELS must confirm:
+Before procurement, the responsible manufacturer and design professional must confirm:
 
 - Which lamp packages are allowed on each solar platform.
 - Actual battery chemistry, voltage, permitted depth of discharge, temperature limits, end-of-life capacity, and maximum current.

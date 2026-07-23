@@ -4,7 +4,7 @@ import { parseIES, interpolateCandela } from '../src/ies-parser.js';
 import { buildLinearLayout } from '../src/photometry.js';
 import { evaluateElectricalLimits, lightingWhPerNight, sizeSolarSystem } from '../src/solar-engine.js';
 
-const samplePath = new URL('../photometry/ies/SELS IES FINAL/T2M/SELS 45W Solar XSPSM-T2M-4000K.ies', import.meta.url);
+const samplePath = new URL('../photometry/ies/XSPSM/46W-T2M-L082110603.ies', import.meta.url);
 const sample = parseIES(await readFile(samplePath, 'utf8'), samplePath.pathname);
 assert.ok(sample.verticalAngles.length > 1, 'IES vertical angles should parse');
 assert.ok(sample.horizontalAngles.length > 0, 'IES horizontal angles should parse');

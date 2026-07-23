@@ -41,7 +41,7 @@ function inferFamily(text) {
   const upper = text.toUpperCase();
   if (upper.includes('FI-PRO') || upper.includes('FIPRO')) return 'FI-PRO';
   if (upper.includes('XSPSM')) return 'XSPSM';
-  return 'SELS';
+  return 'PHOTOMETRIC';
 }
 
 const files = await walk(iesRoot);
@@ -82,9 +82,6 @@ for (const file of files) {
     cct,
     cri: 80,
     lumens: parsed.lumens,
-    manufacturer: parsed.metadata.MANUFAC || 'Unknown',
-    catalogNumber: parsed.metadata.LUMCAT || '',
-    description: parsed.metadata.LUMINAIRE || '',
     testId: parsed.metadata.TEST || '',
     testLab: parsed.metadata.TESTLAB || '',
     issueDate: parsed.metadata.ISSUEDATE || '',

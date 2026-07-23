@@ -15,7 +15,7 @@ import {
   sizeSolarSystem,
 } from './solar-engine.js';
 
-const STORAGE_KEY = 'sels-lighting-engine-v3';
+const STORAGE_KEY = 'akrd-lighting-engine-v3';
 const state = loadState();
 let registry = { records: [] };
 let selectedIES = null;
@@ -194,8 +194,8 @@ function selectField(label, id, choices, value, hint = '') {
 function renderStep1() {
   const application = APPLICATIONS[state.application];
   return `<section class="step-panel">
-    <div class="section-intro"><span class="eyebrow">STEP 1 OF 4</span><h2>Where and when will it operate?</h2>
-      <p>Start with the project and operating season. Technical defaults are applied automatically.</p></div>
+    <div class="section-intro"><span class="eyebrow">01 — PROJECT SIGNAL</span><h2>Frame the site.<br><em>Set the season.</em></h2>
+      <p>Give the engine the essential context. It will establish a technically grounded starting point you can refine.</p></div>
     <div class="field-grid two">
       ${field('Project name', 'projectName', state.projectName, { type: 'text', placeholder: 'Downtown trail lighting' })}
       ${field('Site address', 'address', state.address, { type: 'text', placeholder: 'City, state or full address' })}
@@ -210,7 +210,7 @@ function renderStep1() {
         <input type="checkbox" data-month="${index}" ${state.activeMonths.includes(index) ? 'checked' : ''}><span>${month}</span></label>`).join('')}</div>
       <div class="inline-actions"><button class="text-button" data-month-action="all">All year</button><button class="text-button" data-month-action="summer">Apr–Oct</button><button class="text-button" data-month-action="winter">Nov–Mar</button></div>
     </div>
-    <div class="notice info"><strong>Applied defaults:</strong> ${esc(application.label)}, ${application.avgFc} avg FC, ${application.heightFt} ft mounting height and ${application.distribution} distribution.</div>
+    <div class="notice info"><span class="notice-icon">↗</span><div><strong>Intelligent baseline applied</strong><p>${esc(application.label)}, ${application.avgFc} average FC, ${application.heightFt} ft mounting height and ${application.distribution} distribution.</p></div></div>
   </section>`;
 }
 
@@ -220,10 +220,10 @@ function renderStep2() {
     .map((record) => [record.id, `${record.family} · ${record.nominalLampW} W · ${record.distribution} · ${record.testId || 'unverified'}`]);
   const record = registry.records.find((item) => item.id === state.fixtureId);
   return `<section class="step-panel">
-    <div class="section-intro"><span class="eyebrow">STEP 2 OF 4</span><h2>Choose the light and layout</h2>
-      <p>Select an exact laboratory file, then tune the physical layout. Pole count and actual spacing stay synchronized.</p></div>
+    <div class="section-intro"><span class="eyebrow">02 — LIGHTING LOGIC</span><h2>Shape the light.<br><em>Control the pattern.</em></h2>
+      <p>Pair measured photometry with real geometry. Pole quantity, spacing, and coverage stay synchronized as the design moves.</p></div>
     <div class="field-grid two">
-      ${selectField('Laboratory photometric file', 'fixtureId', fixtureOptions, state.fixtureId, `${registry.uniqueFiles || fixtureOptions.length} unique IES files indexed`)}
+      ${selectField('Verified photometric package', 'fixtureId', fixtureOptions, state.fixtureId, `${registry.uniqueFiles || fixtureOptions.length} unique laboratory files indexed`)}
       ${selectField('Layout', 'layout', [['one-side', 'One side'], ['both-sides', 'Both sides'], ['centerline', 'Centerline']], state.layout)}
       ${field('Mounting height (ft)', 'mountingHeightFt', state.mountingHeightFt, { min: 10, max: 50 })}
       ${field('Target spacing (ft)', 'spacingFt', state.spacingFt, { min: 10, max: 250 })}
@@ -233,7 +233,7 @@ function renderStep2() {
       ${field('Target minimum FC', 'minFcTarget', state.minFcTarget, { min: 0.01, max: 10, step: 0.01 })}
     </div>
     ${record ? `<div class="file-card"><div><span class="badge ${record.status === 'verified' ? 'success' : 'warning'}">${esc(record.status)}</span>
-      <h3>${esc(record.catalogNumber || record.id)}</h3><p>${esc(record.description)}</p></div>
+      <h3>${esc(`${record.family} ${record.nominalLampW} W ${record.distribution}`)}</h3><p>${esc(`${record.cct || 4000} K · ${record.cri || 80} CRI measured photometric package`)}</p></div>
       <dl><div><dt>Measured input</dt><dd>${round(record.measuredInputW)} W</dd></div><div><dt>Distribution</dt><dd>${esc(record.distribution)}</dd></div>
       <div><dt>Test</dt><dd>${esc(record.testId)}</dd></div><div><dt>Laboratory</dt><dd>${esc(record.testLab)}</dd></div></dl></div>` : ''}
     <div class="result-strip">
@@ -258,8 +258,8 @@ function renderAccessories() {
 
 function renderStep3() {
   return `<section class="step-panel">
-    <div class="section-intro"><span class="eyebrow">STEP 3 OF 4</span><h2>Size solar, battery and accessories</h2>
-      <p>Adjust hardware and immediately see worst-month production, reserve and safe accessory capacity.</p></div>
+    <div class="section-intro"><span class="eyebrow">03 — ENERGY SYSTEM</span><h2>Build for the night.<br><em>Prove it by month.</em></h2>
+      <p>Balance generation, storage, operating profile, and connected equipment against the hardest active month.</p></div>
     <div class="choice-grid three">${Object.entries(SOLAR_STYLES).map(([key, style]) => `<button type="button" class="choice-card ${state.solarStyle === key ? 'selected' : ''}" data-solar-style="${key}">
       <span class="solar-icon ${key}"></span><strong>${esc(style.label)}</strong><small>${esc(style.description)}</small></button>`).join('')}</div>
     <div class="field-grid three">
@@ -308,8 +308,8 @@ function renderStep4() {
     ...electrical.warnings,
   ].filter(Boolean);
   return `<section class="step-panel results-page">
-    <div class="section-intro"><span class="eyebrow">STEP 4 OF 4</span><h2>${esc(state.projectName || 'Recommended system')}</h2>
-      <p>A planning-level decision summary with photometric, seasonal-energy and electrical checks.</p></div>
+    <div class="section-intro"><span class="eyebrow">04 — DESIGN VERDICT</span><h2>${esc(state.projectName || 'System recommendation')}</h2>
+      <p>One decision view across photometric performance, seasonal energy balance, storage, and electrical capacity.</p></div>
     <div class="score-grid">
       <article class="score-card ${statusClass(photometricResult.avgFc >= state.avgFcTarget && photometricResult.minFc >= state.minFcTarget)}"><span>Lighting</span><strong>${round(photometricResult.avgFc, 2)} / ${round(photometricResult.minFc, 2)} FC</strong><small>Average / minimum</small></article>
       <article class="score-card ${statusClass(solarResult.energyPass)}"><span>Worst month</span><strong>${esc(solarResult.worstMonth?.month || '—')}</strong><small>${round(solarResult.worstMonth?.marginPercent)}% daily margin</small></article>
@@ -318,7 +318,7 @@ function renderStep4() {
     </div>
     <div class="results-columns">
       <article class="result-card"><h3>Selected configuration</h3><dl>
-        <div><dt>IES fixture</dt><dd>${esc(registry.records.find((item) => item.id === state.fixtureId)?.catalogNumber || 'Not selected')}</dd></div>
+        <div><dt>Photometric package</dt><dd>${esc((() => { const item = registry.records.find((record) => record.id === state.fixtureId); return item ? `${item.family} ${item.nominalLampW} W ${item.distribution}` : 'Not selected'; })())}</dd></div>
         <div><dt>Lamp load</dt><dd>${round(state.lampWatts)} W × ${photometricResult.layout.poleCount}</dd></div>
         <div><dt>Distribution</dt><dd>${esc(state.distribution)}</dd></div>
         <div><dt>Panel style</dt><dd>${esc(SOLAR_STYLES[state.solarStyle].label)}</dd></div>
@@ -336,8 +336,8 @@ function renderStep4() {
       </div><div class="legend"><span><i class="production"></i>Solar production</span><span><i class="demand"></i>Energy demand</span></div></article>
     </div>
     <div class="notice ${warnings.length ? 'warning' : 'success'}"><strong>${warnings.length ? 'Review required' : 'Planning checks passed'}</strong>
-      ${warnings.length ? `<ul>${warnings.map((warning) => `<li>${esc(warning)}</li>`).join('')}</ul>` : '<p>The configured model meets the selected planning targets. Final hardware limits and field conditions still require SELS confirmation.</p>'}</div>
-    <div class="disclaimer"><strong>Planning model—not stamped engineering.</strong> Final product compatibility, structural design, electrical protection, battery temperature limits and regulatory compliance must be confirmed by SELS and the responsible design professional.</div>
+      ${warnings.length ? `<ul>${warnings.map((warning) => `<li>${esc(warning)}</li>`).join('')}</ul>` : '<p>The configured model meets the selected planning targets. Final hardware limits and field conditions still require manufacturer and engineering confirmation.</p>'}</div>
+    <div class="disclaimer"><strong>Decision-support model—not stamped engineering.</strong> Final product compatibility, structural design, electrical protection, battery temperature limits, and regulatory compliance must be confirmed by the responsible manufacturer and design professional.</div>
   </section>`;
 }
 
@@ -376,9 +376,10 @@ function renderSummary() {
     && solarResult.electrical.safe;
   const badge = document.querySelector('#confidenceBadge');
   badge.className = `badge ${pass ? 'success' : 'estimate'}`;
-  badge.textContent = pass ? 'Planning checks passed' : 'Planning estimate';
+  badge.textContent = pass ? 'Model checks passed' : 'Design in progress';
   document.querySelector('#summaryStatus').innerHTML = `<div class="summary-callout ${pass ? 'success' : 'warning'}">
-    ${pass ? 'Configuration clears current model targets.' : 'Continue tuning highlighted checks before final review.'}</div>`;
+    <strong>${pass ? 'Ready for technical review' : 'Design needs attention'}</strong>
+    <span>${pass ? 'The configuration clears current model targets.' : 'Continue tuning the highlighted checks.'}</span></div>`;
 }
 
 function applyApplicationDefaults(key) {
