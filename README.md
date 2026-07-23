@@ -16,6 +16,12 @@ A browser-based planning tool that connects measured luminaire photometry with s
 - Lighting schedules model dusk-to-dawn, adaptive, and motion operation without double-counting standby energy.
 - Auxiliary equipment is checked for energy, voltage, continuous power, and peak power.
 - API credentials are not stored in the repository.
+- Complete grid-and-trenching and provider-neutral solar alternatives are compared on equal lighting performance.
+- Trenching surfaces include turf, planting, asphalt, concrete, roadway, pavers, irrigation, and tree-root protection areas.
+- Lifecycle costs include service, restoration, landscaping, energy, maintenance, and battery replacement assumptions.
+- GHG reporting separates project emissions, avoided emissions, and optional purchased carbon offsets.
+- The report surfaces potential LEED pathways without promising certification or points.
+- An immersive 3D site workspace is prepared for Google Maps 3D, Places, Solar data layers, and Census context.
 
 ## Run locally
 
@@ -45,7 +51,38 @@ The script parses each file, normalizes its metadata, calculates a SHA-256 check
 npm test
 ```
 
-Tests cover IES parsing, candela interpolation, endpoint-inclusive pole counts, motion-energy calculations, electrical limits, and seasonal solar sizing.
+Tests cover IES parsing, candela interpolation, endpoint-inclusive pole counts, motion-energy calculations, electrical limits, seasonal solar sizing, project economics, landscape restoration, and lifecycle carbon.
+
+## API integration plan
+
+The protected Node server now provides `/api/status`, `/api/solar-resource`, `/api/climate`, `/api/elevation`, `/api/census`, and `/api/electricity-rate`. Use separate restricted browser and server credentials. The browser receives only a referrer-restricted Google Maps key. Census, NREL, EIA, elevation, solar-resource processing, and caching belong behind `/api`.
+
+- Google Maps JavaScript / Maps 3D / Places (New) / Geocoding / Elevation / Time Zone / Solar API
+- U.S. Census Data API and Census Geocoder
+- NREL Developer Network
+- EIA API
+- Open-Meteo for weather history where appropriate (no key at time of design)
+
+EPA eGRID factors, LEED pathway mappings, unit costs, and embodied-carbon factors are versioned reference datasets rather than hidden live assumptions. Every report must identify the source year, geography, factor, and user overrides.
+
+## Private configuration
+
+Copy `.env.example` to `.env`, then fill in the rotated credentials. Never reuse credentials that were previously committed or embedded in browser JavaScript.
+
+```powershell
+Copy-Item .env.example .env
+node scripts/set-password.mjs
+```
+
+Paste the generated `APP_PASSWORD_HASH` into `.env`. Generate a separate random `SESSION_SECRET` of at least 32 characters. In production, set `NODE_ENV=production`, use HTTPS, restrict the browser key by HTTP referrer, and restrict the server key by server IP.
+
+Start the password-protected application with:
+
+```powershell
+node scripts/serve.mjs 8000
+```
+
+Authentication is intentionally permitted without a password only in local development when `APP_PASSWORD_HASH` is absent. Production does not receive that bypass.
 
 ## Calculation boundaries
 
@@ -69,4 +106,4 @@ Only files supplied or authorized by the manufacturer or testing laboratory shou
 
 ## Repository security
 
-Do not commit live API keys. Use `config.local.js` for local-only configuration or provide credentials through a protected backend. Google Maps keys must be restricted by API and HTTP referrer; general data-service credentials should not be shipped to browsers.
+Do not commit live API keys. Use the ignored `.env` file locally and hosting-environment variables in production. Google Maps browser keys must be restricted by API and HTTP referrer; server credentials must not be shipped to browsers.

@@ -6,6 +6,7 @@
   "scripts": {
     "build:ies": "node scripts/build-ies-registry.mjs",
     "test": "node tests/run-tests.mjs",
-    "start": "node scripts/serve.mjs 8000"
+    "set-password": "node scripts/set-password.mjs",
+    "start": "node scripts/serve.mjs"
   }
 }

@@ -14,6 +14,9 @@ import {
   remainingAccessoryAllowance,
   sizeSolarSystem,
 } from './solar-engine.js';
+import { compareProjectAlternatives, SURFACE_TYPES } from './project-economics.js';
+import { calculateSustainability } from './sustainability.js';
+import { getApiStatus, getLocationContext } from './api-client.js';
 
 const STORAGE_KEY = 'akrd-lighting-engine-v3';
 const state = loadState();
@@ -21,6 +24,9 @@ let registry = { records: [] };
 let selectedIES = null;
 let photometricResult = null;
 let solarResult = null;
+let economicsResult = null;
+let sustainabilityResult = null;
+let apiStatus = {};
 
 function initialState() {
   return {
@@ -29,6 +35,9 @@ function initialState() {
     address: '',
     application: 'pathway',
     latitude: 35,
+    longitude: -80,
+    stateCode: 'NC',
+    apiContext: {},
     lengthFt: 240,
     widthFt: 12,
     layout: 'one-side',
@@ -60,6 +69,33 @@ function initialState() {
     reserveDays: 3,
     monthlyPsh: [...DEFAULT_MONTHLY_PSH],
     accessories: [],
+    siteType: 'pole',
+    trenchSurface: 'turf',
+    trenchLengthFt: 240,
+    poleInstalledCost: 6500,
+    gridServiceCost: 18000,
+    utilityCoordinationCost: 7500,
+    trafficControlCost: 8000,
+    irrigationRepairCost: 3500,
+    treeProtectionCost: 2500,
+    gridMobilizationCost: 6000,
+    solarEquipmentPerPole: 7800,
+    solarInstallPerPole: 2200,
+    solarMobilizationCost: 3500,
+    solarSiteRestorationCost: 1200,
+    utilityRatePerKwh: 0.16,
+    monthlyServiceCharge: 28,
+    gridAnnualMaintenance: 450,
+    solarAnnualMaintenance: 650,
+    batteryReplacementCost: 2800,
+    batteryLifeYears: 8,
+    analysisYears: 20,
+    discountRatePercent: 4,
+    energyEscalationPercent: 2.5,
+    gridKgCo2ePerKwh: 0.38,
+    solarEmbodiedKgPerPole: 850,
+    batteryReplacementKg: 240,
+    carbonPricePerMetricTon: 65,
     hardware: {
       outputVoltage: 12,
       maxContinuousWatts: 60,
@@ -173,6 +209,45 @@ function updateCalculations() {
     reserveDays: state.reserveDays,
     loadEfficiency: 0.9,
   }, solarResult);
+  const monthDays = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  const operatingDays = state.activeMonths.reduce((total, index) => total + monthDays[index], 0);
+  const annualLightingKwh = solarResult.adjustedDemandWh * operatingDays / 1000;
+  economicsResult = compareProjectAlternatives({
+    trenchSegments: [{ surface: state.trenchSurface, lengthFt: state.trenchLengthFt }],
+    poleCount: layout.poleCount,
+    poleInstalledCost: state.poleInstalledCost,
+    gridServiceCost: state.gridServiceCost,
+    utilityCoordinationCost: state.utilityCoordinationCost,
+    trafficControlCost: state.trafficControlCost,
+    irrigationRepairCost: state.irrigationRepairCost,
+    treeProtectionCost: state.treeProtectionCost,
+    gridMobilizationCost: state.gridMobilizationCost,
+    solarEquipmentPerPole: state.solarEquipmentPerPole,
+    solarInstallPerPole: state.solarInstallPerPole,
+    solarMobilizationCost: state.solarMobilizationCost,
+    solarSiteRestorationCost: state.solarSiteRestorationCost,
+    annualLightingKwh,
+    utilityRatePerKwh: state.utilityRatePerKwh,
+    monthlyServiceCharge: state.monthlyServiceCharge,
+    gridAnnualMaintenance: state.gridAnnualMaintenance,
+    solarAnnualMaintenance: state.solarAnnualMaintenance,
+    batteryReplacementCost: state.batteryReplacementCost * layout.poleCount,
+    batteryLifeYears: state.batteryLifeYears,
+    analysisYears: state.analysisYears,
+    discountRate: state.discountRatePercent / 100,
+    energyEscalation: state.energyEscalationPercent / 100,
+  });
+  sustainabilityResult = calculateSustainability({
+    annualGridKwh: annualLightingKwh,
+    analysisYears: state.analysisYears,
+    gridKgCo2ePerKwh: state.gridKgCo2ePerKwh,
+    gridConstructionKg: economicsResult.trenchConstructionKgCo2e,
+    solarEmbodiedKg: state.solarEmbodiedKgPerPole * layout.poleCount,
+    batteryReplacementKg: state.batteryReplacementKg * layout.poleCount,
+    solarAnnualMaintenanceKg: 12 * layout.poleCount,
+    batteryLifeYears: state.batteryLifeYears,
+    carbonPricePerMetricTon: state.carbonPricePerMetricTon,
+  });
 }
 
 function field(label, id, value, options = {}) {
@@ -201,8 +276,30 @@ function renderStep1() {
       ${field('Site address', 'address', state.address, { type: 'text', placeholder: 'City, state or full address' })}
       ${selectField('Application', 'application', Object.entries(APPLICATIONS).map(([key, item]) => [key, item.label]), state.application)}
       ${field('Latitude', 'latitude', state.latitude, { min: -60, max: 70, step: 0.01, hint: 'Used for seasonal panel optimization.' })}
+      ${field('Longitude', 'longitude', state.longitude, { min: -180, max: 180, step: 0.01 })}
+      ${field('State code', 'stateCode', state.stateCode, { type: 'text', placeholder: 'NC' })}
       ${field('Project length (ft)', 'lengthFt', state.lengthFt, { min: 10, max: 10000 })}
       ${field('Illuminated width (ft)', 'widthFt', state.widthFt, { min: 4, max: 500 })}
+    </div>
+    <div class="scene-shell" aria-label="Immersive 3D site workspace">
+      <div class="scene-empty"><span class="eyebrow">IMMERSIVE SITE VIEW</span><strong>Drop into the installation scene</strong>
+        <p>Search the site, place the pole or shelter, confirm solar south, and review buildings, trees, terrain and likely shade. The live scene activates when restricted map credentials and backend services are connected.</p>
+        <div class="api-pills">
+          <span>${apiStatus.googleMapsBrowser ? 'Google Maps connected' : 'Google Maps not configured'}</span>
+          <span>${apiStatus.nrel ? 'NREL connected' : 'NREL not configured'}</span>
+          <span>${apiStatus.census ? 'Census connected' : 'Census not configured'}</span>
+          <span>${apiStatus.eia ? 'EIA connected' : 'EIA not configured'}</span>
+          <span>Open-Meteo available</span>
+        </div>
+        <button class="button primary scene-refresh" type="button" id="refreshLocationData">Refresh location data</button>
+      </div>
+    </div>
+    ${Object.keys(state.apiContext || {}).length ? `<div class="notice info"><span class="notice-icon">i</span><div><strong>Location services checked</strong><p>
+      ${Object.entries(state.apiContext).map(([key, value]) => `${esc(key)}: ${value.ok ? 'connected' : esc(value.error)}`).join(' · ')}
+    </p></div></div>` : ''}
+    <div class="field-grid two">
+      ${selectField('Installation type', 'siteType', [['pole', 'Standalone pole'], ['shelter', 'Bus shelter']], state.siteType)}
+      ${selectField('Initial trench surface', 'trenchSurface', Object.entries(SURFACE_TYPES).map(([key, item]) => [key, item.label]), state.trenchSurface)}
     </div>
     <div class="subsection">
       <div><h3>Operating months</h3><p class="muted">Only active months are used to identify the worst design month.</p></div>
@@ -217,7 +314,7 @@ function renderStep1() {
 function renderStep2() {
   const fixtureOptions = registry.records
     .filter((record) => !record.duplicateOf)
-    .map((record) => [record.id, `${record.family} · ${record.nominalLampW} W · ${record.distribution} · ${record.testId || 'unverified'}`]);
+    .map((record) => [record.id, `${record.nominalLampW} W · ${record.distribution}`]);
   const record = registry.records.find((item) => item.id === state.fixtureId);
   return `<section class="step-panel">
     <div class="section-intro"><span class="eyebrow">02 — LIGHTING LOGIC</span><h2>Shape the light.<br><em>Control the pattern.</em></h2>
@@ -233,7 +330,7 @@ function renderStep2() {
       ${field('Target minimum FC', 'minFcTarget', state.minFcTarget, { min: 0.01, max: 10, step: 0.01 })}
     </div>
     ${record ? `<div class="file-card"><div><span class="badge ${record.status === 'verified' ? 'success' : 'warning'}">${esc(record.status)}</span>
-      <h3>${esc(`${record.family} ${record.nominalLampW} W ${record.distribution}`)}</h3><p>${esc(`${record.cct || 4000} K · ${record.cri || 80} CRI measured photometric package`)}</p></div>
+      <h3>${esc(`${record.nominalLampW} W · ${record.distribution}`)}</h3><p>${esc(`${record.cct || 4000} K · ${record.cri || 80} CRI measured photometric package`)}</p></div>
       <dl><div><dt>Measured input</dt><dd>${round(record.measuredInputW)} W</dd></div><div><dt>Distribution</dt><dd>${esc(record.distribution)}</dd></div>
       <div><dt>Test</dt><dd>${esc(record.testId)}</dd></div><div><dt>Laboratory</dt><dd>${esc(record.testLab)}</dd></div></dl></div>` : ''}
     <div class="result-strip">
@@ -296,7 +393,7 @@ function renderStep3() {
 
 function statusClass(pass) { return pass ? 'pass' : 'fail'; }
 
-function renderStep4() {
+function renderStep5() {
   const electrical = solarResult.electrical;
   const warnings = [
     !selectedIES && 'An exact IES file is not loaded.',
@@ -310,6 +407,8 @@ function renderStep4() {
   return `<section class="step-panel results-page">
     <div class="section-intro"><span class="eyebrow">04 — DESIGN VERDICT</span><h2>${esc(state.projectName || 'System recommendation')}</h2>
       <p>One decision view across photometric performance, seasonal energy balance, storage, and electrical capacity.</p></div>
+    <div class="report-hero"><span class="eyebrow">COMPLETE PROJECT VERDICT</span><h3>${esc(economicsResult.recommendation)}</h3>
+      <p>${money(economicsResult.lifecycleSavings)} estimated ${state.analysisYears}-year lifecycle savings and ${round(sustainabilityResult.avoidedMetricTons)} metric tons CO2e avoided versus the modeled grid-and-trenching baseline.</p></div>
     <div class="score-grid">
       <article class="score-card ${statusClass(photometricResult.avgFc >= state.avgFcTarget && photometricResult.minFc >= state.minFcTarget)}"><span>Lighting</span><strong>${round(photometricResult.avgFc, 2)} / ${round(photometricResult.minFc, 2)} FC</strong><small>Average / minimum</small></article>
       <article class="score-card ${statusClass(solarResult.energyPass)}"><span>Worst month</span><strong>${esc(solarResult.worstMonth?.month || '—')}</strong><small>${round(solarResult.worstMonth?.marginPercent)}% daily margin</small></article>
@@ -317,8 +416,26 @@ function renderStep4() {
       <article class="score-card ${statusClass(electrical.safe)}"><span>Accessories</span><strong>${round(solarResult.accessoryWh)} Wh/day</strong><small>${round(solarResult.accessoryAllowanceWh)} Wh/day recommended allowance</small></article>
     </div>
     <div class="results-columns">
+      <article class="result-card"><h3>Financial case</h3><table class="report-table">
+        <tr><th>Complete grid capital</th><td>${money(economicsResult.gridCapital)}</td></tr>
+        <tr><th>Complete solar capital</th><td>${money(economicsResult.solarCapital)}</td></tr>
+        <tr><th>Trenching + restoration</th><td>${money(economicsResult.trenchAndRestorationCost)}</td></tr>
+        <tr><th>Landscape restoration</th><td>${money(economicsResult.landscapeRestorationCost)}</td></tr>
+        <tr><th>Grid lifecycle</th><td>${money(economicsResult.gridLifecycle)}</td></tr>
+        <tr><th>Solar lifecycle</th><td>${money(economicsResult.solarLifecycle)}</td></tr>
+      </table></article>
+      <article class="result-card"><h3>GHG and carbon case</h3><table class="report-table">
+        <tr><th>Grid baseline</th><td>${round(sustainabilityResult.gridTotalKg / 1000)} t CO2e</td></tr>
+        <tr><th>Solar alternative</th><td>${round(sustainabilityResult.solarTotalKg / 1000)} t CO2e</td></tr>
+        <tr><th>Net avoided</th><td>${round(sustainabilityResult.avoidedMetricTons)} t CO2e</td></tr>
+        <tr><th>Reduction</th><td>${round(sustainabilityResult.reductionPercent)}%</td></tr>
+        <tr><th>Carbon value</th><td>${money(sustainabilityResult.carbonValue)}</td></tr>
+        <tr><th>Battery replacements</th><td>${sustainabilityResult.replacements}</td></tr>
+      </table><p class="muted">Avoided emissions are reported separately from any purchased, verified carbon offsets.</p></article>
+    </div>
+    <div class="results-columns">
       <article class="result-card"><h3>Selected configuration</h3><dl>
-        <div><dt>Photometric package</dt><dd>${esc((() => { const item = registry.records.find((record) => record.id === state.fixtureId); return item ? `${item.family} ${item.nominalLampW} W ${item.distribution}` : 'Not selected'; })())}</dd></div>
+        <div><dt>Photometric package</dt><dd>${esc((() => { const item = registry.records.find((record) => record.id === state.fixtureId); return item ? `${item.nominalLampW} W · ${item.distribution}` : 'Not selected'; })())}</dd></div>
         <div><dt>Lamp load</dt><dd>${round(state.lampWatts)} W × ${photometricResult.layout.poleCount}</dd></div>
         <div><dt>Distribution</dt><dd>${esc(state.distribution)}</dd></div>
         <div><dt>Panel style</dt><dd>${esc(SOLAR_STYLES[state.solarStyle].label)}</dd></div>
@@ -341,7 +458,46 @@ function renderStep4() {
   </section>`;
 }
 
-const renderers = [null, renderStep1, renderStep2, renderStep3, renderStep4];
+const money = (value) => new Intl.NumberFormat('en-US', {
+  style: 'currency', currency: 'USD', maximumFractionDigits: 0,
+}).format(value || 0);
+
+function renderStep4() {
+  return `<section class="step-panel">
+    <div class="section-intro"><span class="eyebrow">04 — COMPLETE PROJECT COMPARISON</span><h2>Compare the whole job.<br><em>Not just the fixture.</em></h2>
+      <p>Model poles, service, trenching, surface and landscape restoration, operations, replacements and lifecycle carbon on equal lighting performance.</p></div>
+    <div class="field-grid three">
+      ${field('Trench route (ft)', 'trenchLengthFt', state.trenchLengthFt, { min: 0, max: 50000 })}
+      ${selectField('Primary surface', 'trenchSurface', Object.entries(SURFACE_TYPES).map(([key, item]) => [key, item.label]), state.trenchSurface)}
+      ${field('Installed pole + foundation ($/pole)', 'poleInstalledCost', state.poleInstalledCost, { min: 0 })}
+      ${field('Utility service ($)', 'gridServiceCost', state.gridServiceCost, { min: 0 })}
+      ${field('Utility coordination ($)', 'utilityCoordinationCost', state.utilityCoordinationCost, { min: 0 })}
+      ${field('Traffic / pedestrian control ($)', 'trafficControlCost', state.trafficControlCost, { min: 0 })}
+      ${field('Irrigation repair ($)', 'irrigationRepairCost', state.irrigationRepairCost, { min: 0 })}
+      ${field('Tree/root protection ($)', 'treeProtectionCost', state.treeProtectionCost, { min: 0 })}
+      ${field('Grid mobilization ($)', 'gridMobilizationCost', state.gridMobilizationCost, { min: 0 })}
+      ${field('Solar equipment ($/pole)', 'solarEquipmentPerPole', state.solarEquipmentPerPole, { min: 0 })}
+      ${field('Solar installation ($/pole)', 'solarInstallPerPole', state.solarInstallPerPole, { min: 0 })}
+      ${field('Battery life (years)', 'batteryLifeYears', state.batteryLifeYears, { min: 1, max: 30 })}
+      ${field('Analysis period (years)', 'analysisYears', state.analysisYears, { min: 1, max: 40 })}
+      ${field('Utility energy ($/kWh)', 'utilityRatePerKwh', state.utilityRatePerKwh, { min: 0, step: 0.01 })}
+      ${field('Monthly service charge ($)', 'monthlyServiceCharge', state.monthlyServiceCharge, { min: 0 })}
+      ${field('Grid emissions (kg CO2e/kWh)', 'gridKgCo2ePerKwh', state.gridKgCo2ePerKwh, { min: 0, step: 0.01 })}
+      ${field('Carbon value ($/metric ton)', 'carbonPricePerMetricTon', state.carbonPricePerMetricTon, { min: 0 })}
+    </div>
+    <div class="comparison-grid subsection">
+      <article class="alternative-card"><span class="eyebrow">GRID + TRENCHING</span><h3 class="money">${money(economicsResult.gridCapital)}</h3><p>Complete capital estimate</p>
+        <strong>${money(economicsResult.gridLifecycle)}</strong><p>${state.analysisYears}-year lifecycle estimate</p>
+        <small>${economicsResult.trenchLengthFt.toLocaleString()} ft disturbed; ${money(economicsResult.landscapeRestorationCost)} landscape restoration.</small></article>
+      <article class="alternative-card recommended"><span class="eyebrow">PROVIDER-NEUTRAL SOLAR</span><h3 class="money">${money(economicsResult.solarCapital)}</h3><p>Complete capital estimate</p>
+        <strong>${money(economicsResult.solarLifecycle)}</strong><p>${state.analysisYears}-year lifecycle estimate</p>
+        <small>Minimum modeled requirement: ${Math.ceil(solarResult.requiredPanelWatts)} W panel and ${Math.ceil(solarResult.requiredBatteryWh).toLocaleString()} Wh nominal battery.</small></article>
+    </div>
+    <div class="notice info"><span class="notice-icon">i</span><div><strong>${esc(economicsResult.recommendation)}</strong><p>Replace planning unit costs with local bids, utility requirements and measured route quantities before issue.</p></div></div>
+  </section>`;
+}
+
+const renderers = [null, renderStep1, renderStep2, renderStep3, renderStep4, renderStep5];
 
 function render() {
   updateCalculations();
@@ -351,7 +507,7 @@ function render() {
     button.classList.toggle('complete', Number(button.dataset.stepTarget) < state.step);
   });
   document.querySelector('#backButton').hidden = state.step === 1;
-  document.querySelector('#nextButton').textContent = state.step === 4 ? 'Print summary' : 'Continue';
+  document.querySelector('#nextButton').textContent = state.step === 5 ? 'Print report' : 'Continue';
   renderSummary();
   wireStep();
   saveState();
@@ -370,6 +526,8 @@ function renderSummary() {
     ['Worst active month', solarResult.worstMonth?.month || '—'],
     ['Reserve', `${round(solarResult.reserveDays)} days`],
     ['Accessory allowance', `${round(solarResult.accessoryAllowanceWh)} Wh/day`],
+    ['Lifecycle verdict', economicsResult.recommendation],
+    ['Avoided carbon', `${round(sustainabilityResult.avoidedMetricTons)} t CO2e`],
   ].map(([label, value]) => `<div><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join('');
   const pass = selectedIES && solarResult.energyPass && solarResult.reservePass
     && photometricResult.avgFc >= state.avgFcTarget && photometricResult.minFc >= state.minFcTarget
@@ -449,6 +607,23 @@ function wireStep() {
       });
     });
   });
+  const refreshLocationData = document.querySelector('#refreshLocationData');
+  if (refreshLocationData) refreshLocationData.addEventListener('click', async () => {
+    refreshLocationData.disabled = true;
+    refreshLocationData.textContent = 'Loading location data...';
+    state.apiContext = await getLocationContext({
+      latitude: state.latitude, longitude: state.longitude, stateCode: state.stateCode,
+    });
+    const monthly = state.apiContext.solar?.data?.monthly;
+    if (monthly) {
+      const keys = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+      const values = keys.map((key) => Number(monthly[key]));
+      if (values.every(Number.isFinite)) state.monthlyPsh = values;
+    }
+    const rate = Number(state.apiContext.electricity?.data?.record?.price);
+    if (Number.isFinite(rate)) state.utilityRatePerKwh = rate / 100;
+    render();
+  });
 }
 
 document.querySelectorAll('.step-tab').forEach((button) => {
@@ -456,8 +631,8 @@ document.querySelectorAll('.step-tab').forEach((button) => {
 });
 document.querySelector('#backButton').addEventListener('click', () => { state.step = Math.max(1, state.step - 1); render(); });
 document.querySelector('#nextButton').addEventListener('click', () => {
-  if (state.step === 4) window.print();
-  else { state.step = Math.min(4, state.step + 1); render(); }
+  if (state.step === 5) window.print();
+  else { state.step = Math.min(5, state.step + 1); render(); }
 });
 document.querySelector('#resetProject').addEventListener('click', () => {
   if (!window.confirm('Start a new project and clear the saved design?')) return;
@@ -467,4 +642,5 @@ document.querySelector('#resetProject').addEventListener('click', () => {
 
 await loadRegistry();
 await loadSelectedIES();
+try { apiStatus = await getApiStatus(); } catch { apiStatus = {}; }
 render();

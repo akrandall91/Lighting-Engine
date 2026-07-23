@@ -37,13 +37,6 @@ function inferNominalWatts(text, measuredWatts) {
   matches[0]);
 }
 
-function inferFamily(text) {
-  const upper = text.toUpperCase();
-  if (upper.includes('FI-PRO') || upper.includes('FIPRO')) return 'FI-PRO';
-  if (upper.includes('XSPSM')) return 'XSPSM';
-  return 'PHOTOMETRIC';
-}
-
 const files = await walk(iesRoot);
 const seenHashes = new Map();
 const records = [];
@@ -74,8 +67,7 @@ for (const file of files) {
   if (!parsed.metadata.LUMCAT) issues.push('Luminaire catalog number is missing.');
 
   records.push({
-    id: `${inferFamily(searchable).toLowerCase()}-${nominalLampW}w-${distribution.toLowerCase()}-${parsed.metadata.TEST || sha256.slice(0, 8)}`.replaceAll(/[^a-z0-9-]+/g, '-'),
-    family: inferFamily(searchable),
+    id: `${nominalLampW}w-${distribution.toLowerCase()}-${parsed.metadata.TEST || sha256.slice(0, 8)}`.replaceAll(/[^a-z0-9-]+/g, '-'),
     nominalLampW,
     measuredInputW: parsed.inputWatts,
     distribution,
@@ -95,8 +87,7 @@ for (const file of files) {
 }
 
 records.sort((a, b) =>
-  a.family.localeCompare(b.family)
-  || a.nominalLampW - b.nominalLampW
+  a.nominalLampW - b.nominalLampW
   || a.distribution.localeCompare(b.distribution),
 );
 

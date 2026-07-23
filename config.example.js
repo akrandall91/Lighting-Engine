@@ -1,5 +1,8 @@
 export const APP_CONFIG = {
-  googleMapsApiKey: '',
-  nrelApiKey: '',
-  eiaApiKey: '',
+  apiBaseUrl: '/api',
+  features: {
+    immersive3d: true,
+    censusContext: true,
+    solarDataLayers: true,
+  },
 };
