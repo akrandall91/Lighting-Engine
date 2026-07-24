@@ -110,6 +110,51 @@ async function api(req, res, url) {
     if (url.pathname === '/api/client-config') {
       return sendJson(res, 200, { googleMapsBrowserKey: env.GOOGLE_MAPS_BROWSER_KEY || '' });
     }
+    if (url.pathname === '/api/geocode') {
+      const address = String(url.searchParams.get('address') || '').trim();
+      if (!address) return sendJson(res, 400, { error: 'A site address is required.' });
+      if (!env.GOOGLE_MAPS_SERVER_KEY) return sendJson(res, 503, { error: 'Google server key is not configured.' });
+      const endpoint = new URL('https://maps.googleapis.com/maps/api/geocode/json');
+      endpoint.search = new URLSearchParams({ address, key: env.GOOGLE_MAPS_SERVER_KEY });
+      let data = await proxyJson(endpoint);
+      let result = data.results?.[0];
+      if (!result) {
+        const places = await proxyJson('https://places.googleapis.com/v1/places:searchText', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Goog-Api-Key': env.GOOGLE_MAPS_SERVER_KEY,
+            'X-Goog-FieldMask': 'places.formattedAddress,places.location,places.addressComponents',
+          },
+          body: JSON.stringify({ textQuery: address, maxResultCount: 1 }),
+        });
+        const place = places.places?.[0];
+        if (place) {
+          result = {
+            formatted_address: place.formattedAddress,
+            geometry: { location: place.location, location_type: 'PLACE_SEARCH' },
+            address_components: (place.addressComponents || []).map((component) => ({
+              short_name: component.shortText,
+              long_name: component.longText,
+              types: component.types,
+            })),
+          };
+          data = { source: 'Google Places API (New)' };
+        }
+      }
+      if (!result) return sendJson(res, 404, { error: data.error_message || `No location matched "${address}".` });
+      const state = result.address_components?.find((component) =>
+        component.types?.includes('administrative_area_level_1'));
+      return sendJson(res, 200, {
+        source: data.source || 'Google Geocoding API',
+        formattedAddress: result.formatted_address,
+        latitude: result.geometry.location.lat,
+        longitude: result.geometry.location.lng,
+        stateCode: state?.short_name || '',
+        locationType: result.geometry.location_type,
+        partialMatch: Boolean(result.partial_match),
+      });
+    }
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return sendJson(res, 400, { error: 'Valid lat and lng are required.' });
     if (url.pathname === '/api/solar-resource') {
       if (!env.NREL_API_KEY) return sendJson(res, 503, { error: 'NREL key is not configured.' });

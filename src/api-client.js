@@ -14,6 +14,7 @@ async function request(path, params = {}) {
 }
 
 export const getApiStatus = () => request('/api/status');
+export const resolveAddress = (address) => request('/api/geocode', { address });
 
 export async function getLocationContext({ latitude, longitude, stateCode }) {
   const coordinates = { lat: latitude, lng: longitude };

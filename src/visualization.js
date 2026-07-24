@@ -57,26 +57,39 @@ export async function renderSiteMap(container, state, layout) {
     siteOverlays.forEach((overlay) => overlay.setMap?.(null));
     siteOverlays = [];
     const coordinates = poleCoordinates(state, layout);
+    const infoWindow = new maps.InfoWindow();
     coordinates.forEach((position, index) => {
       const marker = new maps.Marker({
-        map: siteMap, position, title: `Pole ${index + 1}`,
-        label: { text: `P${index + 1}`, color: '#111715', fontWeight: '800' },
+        map: siteMap, position, title: `Pole ${index + 1} · ${Number(state.mountingHeightFt)} ft mounting height`,
         icon: {
-          path: maps.SymbolPath.CIRCLE, scale: 11, fillColor: '#c9ff5b',
-          fillOpacity: 1, strokeColor: '#111715', strokeWeight: 2,
+          path: maps.SymbolPath.CIRCLE, scale: 7, fillColor: '#c9ff5b',
+          fillOpacity: 1, strokeColor: '#111715', strokeWeight: 2.5,
         },
+      });
+      marker.addListener('click', () => {
+        infoWindow.setContent(`<div class="map-popup"><strong>Pole ${index + 1}</strong><br>${Number(state.mountingHeightFt)} ft mounting height<br>${Number(layout.actualSpacingFt).toFixed(1)} ft calculated spacing</div>`);
+        infoWindow.open({ map: siteMap, anchor: marker });
       });
       siteOverlays.push(marker);
     });
     if (coordinates.length > 1) {
+      const feetPerDegreeLng = 364000 * Math.max(0.2, Math.cos(center.lat * Math.PI / 180));
+      const halfLength = Number(state.lengthFt) / 2 / feetPerDegreeLng;
       const route = new maps.Polyline({
-        map: siteMap, path: coordinates, strokeColor: '#c9ff5b',
-        strokeOpacity: 0.9, strokeWeight: 3,
+        map: siteMap,
+        path: [
+          { lat: center.lat, lng: center.lng - halfLength },
+          { lat: center.lat, lng: center.lng + halfLength },
+        ],
+        strokeColor: '#c9ff5b', strokeOpacity: 0.75, strokeWeight: 3,
       });
       siteOverlays.push(route);
       const bounds = new maps.LatLngBounds();
       coordinates.forEach((point) => bounds.extend(point));
       siteMap.fitBounds(bounds, 70);
+      maps.event.addListenerOnce(siteMap, 'idle', () => {
+        if (siteMap.getZoom() > 20) siteMap.setZoom(20);
+      });
     }
   } catch (error) {
     container.innerHTML = `<div class="scene-map-error"><strong>Map unavailable</strong><span>${escapeText(error.message)}</span></div>`;

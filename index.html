@@ -21,12 +21,17 @@
     <div class="top-actions">
       <span class="product-mode"><i></i> Design workspace</span>
       <span id="saveStatus" class="save-status">Autosaved</span>
+      <button id="viewDecisionBrief" class="button quiet" type="button">Decision brief</button>
       <button id="resetProject" class="button ghost" type="button">New project</button>
     </div>
   </header>
 
   <main id="main" class="workspace">
     <section class="designer" aria-label="AKRD Lighting Engine project designer">
+      <div class="project-context" aria-label="Current project">
+        <div><span class="eyebrow">ACTIVE PROJECT</span><strong id="projectContextName">Untitled lighting project</strong></div>
+        <div class="project-context-meta"><span id="projectContextLocation">Location not confirmed</span><span id="projectContextStatus" class="context-status">Draft</span></div>
+      </div>
       <nav class="step-nav" aria-label="Design steps">
         <button class="step-tab active" data-step-target="1"><span>1</span>Site</button>
         <button class="step-tab" data-step-target="2"><span>2</span>Lighting</button>
@@ -53,6 +58,8 @@
       <div id="summaryStatus"></div>
     </aside>
   </main>
+
+  <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
 
   <template id="helpTemplate">
     <dialog class="help-dialog">

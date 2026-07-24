@@ -16,7 +16,7 @@ import {
 } from './solar-engine.js';
 import { compareProjectAlternatives, SURFACE_TYPES } from './project-economics.js';
 import { calculateSustainability, LEED_PATHWAYS } from './sustainability.js';
-import { getApiStatus, getLocationContext } from './api-client.js';
+import { getApiStatus, getLocationContext, resolveAddress } from './api-client.js';
 import { drawPhotometricPlan, drawSideElevation, renderSiteMap } from './visualization.js';
 import { buildDecisionIntelligence } from './decision-intelligence.js';
 
@@ -36,6 +36,7 @@ function initialState() {
     step: 1,
     projectName: '',
     address: '',
+    resolvedAddress: '',
     application: 'pathway',
     latitude: 35,
     longitude: -80,
@@ -126,6 +127,92 @@ const esc = (value) => String(value ?? '')
   .replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 const number = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 const round = (value, digits = 1) => Number(value || 0).toFixed(digits);
+const STEP_LABELS = ['Site', 'Lighting', 'Solar + loads', 'Alternatives', 'Decision brief'];
+
+function getWorkflowState() {
+  const siteReady = Boolean(state.projectName.trim() && (state.resolvedAddress || state.address.trim()));
+  const lightingReady = Boolean(selectedIES
+    && photometricResult?.avgFc >= state.avgFcTarget
+    && photometricResult?.minFc >= state.minFcTarget);
+  const energyReady = Boolean(solarResult?.energyPass && solarResult?.reservePass
+    && solarResult?.electrical?.safe && state.clearSouth === 'confirmed');
+  const alternativesReady = Boolean(economicsResult && state.trenchLengthFt >= 0 && state.analysisYears > 0);
+  const decisionReady = siteReady && lightingReady && energyReady && alternativesReady;
+  return {
+    steps: [siteReady, lightingReady, energyReady, alternativesReady, decisionReady],
+    completeCount: [siteReady, lightingReady, energyReady, alternativesReady].filter(Boolean).length,
+    decisionReady,
+  };
+}
+
+function stepGuidance() {
+  const workflow = getWorkflowState();
+  const guides = [
+    {
+      title: state.resolvedAddress ? 'Site evidence is connected' : 'Confirm the project location',
+      body: state.resolvedAddress
+        ? 'Review the mapped pole corridor and operating season before moving to lighting.'
+        : 'Name the project, enter an address, and load location evidence so every downstream result uses the correct place.',
+    },
+    {
+      title: workflow.steps[1] ? 'Lighting target is met' : 'Tune the lighting pattern',
+      body: workflow.steps[1]
+        ? `Measured photometry clears the selected ${state.avgFcTarget} average and ${state.minFcTarget} minimum foot-candle targets.`
+        : 'Adjust wattage, distribution, height, spacing, or output until both average and minimum targets pass.',
+    },
+    {
+      title: workflow.steps[2] ? 'Energy system clears the planning checks' : 'Close the worst-month energy gap',
+      body: workflow.steps[2]
+        ? 'Generation, battery reserve, electrical output, and southern exposure are aligned.'
+        : `Each pole or shelter system needs about ${Math.ceil(solarResult?.requiredPanelWatts || 0)} W of panel and ${Math.ceil(solarResult?.requiredBatteryWh || 0).toLocaleString()} Wh of nominal storage.`,
+    },
+    {
+      title: 'Compare complete project costs',
+      body: 'Replace planning allowances with local quantities or bids. Trenching, restoration, utility coordination, maintenance, and replacements are all included.',
+    },
+    {
+      title: workflow.decisionReady ? 'Ready for technical review' : 'Decision brief with open challenges',
+      body: workflow.decisionReady
+        ? 'All four planning workstreams are complete. Review the evidence ledger before issuing the report.'
+        : 'The report remains available, but it clearly identifies every failed check, assumption, and field-verification requirement.',
+    },
+  ];
+  return guides[state.step - 1];
+}
+
+function showToast(message, type = 'info') {
+  const region = document.querySelector('#toastRegion');
+  if (!region) return;
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.innerHTML = `<i aria-hidden="true">${type === 'success' ? '✓' : type === 'warning' ? '!' : 'i'}</i><span>${esc(message)}</span>`;
+  region.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add('visible'));
+  window.setTimeout(() => {
+    toast.classList.remove('visible');
+    window.setTimeout(() => toast.remove(), 250);
+  }, 3600);
+}
+
+function userFacingVerdict() {
+  const costWinner = economicsResult.lifecycleSavings >= 0 ? 'solar' : 'grid';
+  const carbonWinner = sustainabilityResult.avoidedMetricTons >= 0 ? 'solar' : 'grid';
+  const energyGap = Math.max(0, -(solarResult.worstMonth?.marginPercent || 0));
+  if (!solarResult.energyPass) return {
+    title: 'The selected solar system is undersized',
+    body: `${solarResult.worstMonth?.month || 'The worst active month'} has a ${round(energyGap)}% daily energy shortfall. Increase the panel to at least ${Math.ceil(solarResult.requiredPanelWatts)} W, reduce the operating load, or change the active season.`,
+  };
+  if (!solarResult.reservePass) return {
+    title: 'Generation works, but storage is too small',
+    body: `The design produces enough daily energy but does not meet the ${state.reserveDays}-day resilience target. Increase nominal storage to about ${Math.ceil(solarResult.requiredBatteryWh).toLocaleString()} Wh.`,
+  };
+  return {
+    title: `${costWinner === 'solar' ? 'Solar' : 'Grid'} has the current lifecycle advantage`,
+    body: costWinner === carbonWinner
+      ? 'Cost and lifecycle carbon point in the same direction.'
+      : 'Cost and lifecycle carbon point in different directions, so the decision requires a policy tradeoff.',
+  };
+}
 
 async function loadRegistry() {
   try {
@@ -179,7 +266,7 @@ function updateCalculations() {
     activeMonths: state.activeMonths,
     lighting: {
       lampWatts: state.lampWatts,
-      lampCount: layout.poleCount,
+      lampCount: 1,
       nightHours: state.nightHours,
       schedule: state.schedule,
       eveningPercent: state.eveningPercent,
@@ -214,7 +301,7 @@ function updateCalculations() {
   }, solarResult);
   const monthDays = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
   const operatingDays = state.activeMonths.reduce((total, index) => total + monthDays[index], 0);
-  const annualLightingKwh = solarResult.adjustedDemandWh * operatingDays / 1000;
+  const annualLightingKwh = solarResult.adjustedDemandWh * layout.poleCount * operatingDays / 1000;
   economicsResult = compareProjectAlternatives({
     trenchSegments: [{ surface: state.trenchSurface, lengthFt: state.trenchLengthFt }],
     poleCount: layout.poleCount,
@@ -292,18 +379,22 @@ function renderStep1() {
       ${field('Project length (ft)', 'lengthFt', state.lengthFt, { min: 10, max: 10000 })}
       ${field('Illuminated width (ft)', 'widthFt', state.widthFt, { min: 4, max: 500 })}
     </div>
-    <div class="scene-shell" aria-label="Immersive site workspace">
-      <div id="siteMap" class="site-map"></div>
-      <div class="scene-empty scene-overlay"><span class="eyebrow">IMMERSIVE SITE VIEW</span><strong>Mapped pole scene</strong>
-        <p>Search the site, place the pole or shelter, confirm solar south, and review buildings, trees, terrain and likely shade. The live scene activates when restricted map credentials and backend services are connected.</p>
-        <div class="api-pills">
+    <div class="scene-workspace">
+      <div class="scene-toolbar">
+        <div><span class="eyebrow">SITE EVIDENCE</span><strong>Mapped pole scene</strong>
+          <small>${esc(state.resolvedAddress || 'Enter an address, then locate the project site.')}</small></div>
+        <button class="button primary scene-refresh" type="button" id="locateSite">Locate address + load evidence</button>
+      </div>
+      <div class="scene-shell" aria-label="Satellite site map with calculated pole locations">
+        <div id="siteMap" class="site-map"></div>
+        <div class="map-legend"><span><i></i>Calculated pole</span><span>${photometricResult?.layout?.poleCount || 0} poles · ${Number(state.spacingFt).toFixed(0)} ft target spacing</span></div>
+      </div>
+      <div class="api-pills scene-status" aria-label="Connected evidence services">
           <span>${apiStatus.googleMapsBrowser ? 'Google Maps configured' : 'Google Maps not configured'}</span>
           <span>${apiStatus.nrel ? 'NREL configured' : 'NREL not configured'}</span>
           <span>${apiStatus.census ? 'Census configured' : 'Census not configured'}</span>
           <span>${apiStatus.eia ? 'EIA configured' : 'EIA not configured'}</span>
           <span>Open-Meteo available</span>
-        </div>
-        <button class="button primary scene-refresh" type="button" id="refreshLocationData">Refresh location data</button>
       </div>
     </div>
     ${Object.keys(state.apiContext || {}).length ? `<div class="notice info"><span class="notice-icon">i</span><div><strong>Location services checked</strong><p>
@@ -351,6 +442,12 @@ function renderStep2() {
       <div><span>Average</span><strong>${round(photometricResult.avgFc, 2)} FC</strong></div>
       <div><span>Minimum</span><strong>${round(photometricResult.minFc, 2)} FC</strong></div>
     </div>
+    <div class="plain-result ${photometricResult.avgFc >= state.avgFcTarget && photometricResult.minFc >= state.minFcTarget ? 'pass' : 'attention'}">
+      <i>${photometricResult.avgFc >= state.avgFcTarget && photometricResult.minFc >= state.minFcTarget ? '✓' : '!'}</i><div><strong>${photometricResult.avgFc >= state.avgFcTarget && photometricResult.minFc >= state.minFcTarget ? 'The lighting target is met' : 'The lighting target needs adjustment'}</strong>
+      <p>${photometricResult.avgFc >= state.avgFcTarget && photometricResult.minFc >= state.minFcTarget
+        ? `Measured photometry clears both selected targets at ${photometricResult.layout.poleCount} poles.`
+        : `The model must reach ${state.avgFcTarget} average and ${state.minFcTarget} minimum FC. Adjust spacing, height, output, wattage, or distribution.`}</p></div>
+    </div>
     <div class="visual-grid">
       <article class="visual-card"><div><span class="eyebrow">IES POINT-BY-POINT</span><h3>Photometric coverage</h3></div>
         <canvas id="photometricPlan" width="1050" height="470" aria-label="Point-by-point foot-candle heatmap"></canvas></article>
@@ -377,6 +474,7 @@ function renderStep3() {
       <p>Balance generation, storage, operating profile, and connected equipment against the hardest active month.</p></div>
     <div class="choice-grid three">${Object.entries(SOLAR_STYLES).map(([key, style]) => `<button type="button" class="choice-card ${state.solarStyle === key ? 'selected' : ''}" data-solar-style="${key}">
       <span class="solar-icon ${key}"></span><strong>${esc(style.label)}</strong><small>${esc(style.description)}</small></button>`).join('')}</div>
+    <div class="sizing-guidance"><div><span class="eyebrow">PER POLE / SHELTER</span><strong>${Math.ceil(solarResult.requiredPanelWatts)} W panel</strong><small>Worst active month</small></div><div><strong>${Math.ceil(solarResult.requiredBatteryWh).toLocaleString()} Wh battery</strong><small>${state.reserveDays}-day resilience target</small></div><div class="${solarResult.energyPass && solarResult.reservePass ? 'pass' : 'attention'}"><strong>${solarResult.energyPass && solarResult.reservePass ? 'Selected system passes' : 'Selected system is undersized'}</strong><small>${solarResult.worstMonth?.month || 'Worst month'}: ${round(solarResult.worstMonth?.marginPercent)}% daily margin</small></div></div>
     <div class="field-grid three">
       ${selectField('Solar panel', 'panelWatts', PANEL_SIZES_W.map((value) => [value, `${value} W`]), state.panelWatts)}
       ${selectField('Battery', 'batteryWh', BATTERY_SIZES_WH.map((value) => [value, `${value.toLocaleString()} Wh`]), state.batteryWh)}
@@ -425,8 +523,9 @@ function renderStep5() {
   return `<section class="step-panel results-page">
     <div class="section-intro"><span class="eyebrow">04 — DESIGN VERDICT</span><h2>${esc(state.projectName || 'System recommendation')}</h2>
       <p>One decision view across photometric performance, seasonal energy balance, storage, and electrical capacity.</p></div>
-    <div class="report-hero"><span class="eyebrow">COMPLETE PROJECT VERDICT</span><h3>${esc(economicsResult.recommendation)}</h3>
+    <div class="report-hero"><div class="report-hero-top"><span class="eyebrow">COMPLETE PROJECT VERDICT</span><span class="report-id">PLANNING MODEL · ${new Date().toLocaleDateString()}</span></div><h3>${esc(economicsResult.recommendation)}</h3>
       <p>${money(Math.abs(economicsResult.lifecycleSavings))} ${state.analysisYears}-year lifecycle advantage for ${economicsResult.lifecycleSavings >= 0 ? 'solar' : 'grid'} and ${round(Math.abs(sustainabilityResult.avoidedMetricTons))} metric tons CO2e advantage for ${sustainabilityResult.avoidedMetricTons >= 0 ? 'solar' : 'grid'} under current assumptions.</p></div>
+    <div class="verdict-explainer"><span class="eyebrow">WHAT THIS MEANS</span><h3>${esc(userFacingVerdict().title)}</h3><p>${esc(userFacingVerdict().body)}</p></div>
     <div class="decision-readiness"><span class="eyebrow">DECISION READINESS</span><strong>${esc(decisionResult.decisionReadiness)}</strong><p>The engine tests the same proposal independently for lighting, worst-month energy, lifecycle cost and lifecycle carbon.</p></div>
     <div class="decision-tests" aria-label="Four independent decision tests">
       ${[
@@ -466,9 +565,9 @@ function renderStep5() {
         <div><dt>Lamp load</dt><dd>${round(state.lampWatts)} W × ${photometricResult.layout.poleCount}</dd></div>
         <div><dt>Distribution</dt><dd>${esc(state.distribution)}</dd></div>
         <div><dt>Panel style</dt><dd>${esc(SOLAR_STYLES[state.solarStyle].label)}</dd></div>
-        <div><dt>Panel / battery</dt><dd>${state.panelWatts} W / ${state.batteryWh.toLocaleString()} Wh</dd></div>
-        <div><dt>Required panel</dt><dd>${Math.ceil(solarResult.requiredPanelWatts)} W minimum model estimate</dd></div>
-        <div><dt>Required battery</dt><dd>${Math.ceil(solarResult.requiredBatteryWh).toLocaleString()} Wh nominal model estimate</dd></div>
+        <div><dt>Panel / battery per unit</dt><dd>${state.panelWatts} W / ${state.batteryWh.toLocaleString()} Wh</dd></div>
+        <div><dt>Required panel per unit</dt><dd>${Math.ceil(solarResult.requiredPanelWatts)} W minimum model estimate</dd></div>
+        <div><dt>Required battery per unit</dt><dd>${Math.ceil(solarResult.requiredBatteryWh).toLocaleString()} Wh nominal model estimate</dd></div>
       </dl></article>
       <article class="result-card"><h3>Monthly energy balance</h3><div class="month-chart">
         ${solarResult.months.map((month) => {
@@ -528,7 +627,7 @@ function renderStep4() {
   return `<section class="step-panel">
     <div class="section-intro"><span class="eyebrow">04 — COMPLETE PROJECT COMPARISON</span><h2>Compare the whole job.<br><em>Not just the fixture.</em></h2>
       <p>Model poles, service, trenching, surface and landscape restoration, operations, replacements and lifecycle carbon on equal lighting performance.</p></div>
-    <div class="field-grid three">
+    <details class="assumption-panel"><summary><span><strong>Cost and lifecycle assumptions</strong><small>Review or replace the planning allowances</small></span><i>Edit ${17} inputs</i></summary><div class="field-grid three">
       ${field('Trench route (ft)', 'trenchLengthFt', state.trenchLengthFt, { min: 0, max: 50000 })}
       ${selectField('Primary surface', 'trenchSurface', Object.entries(SURFACE_TYPES).map(([key, item]) => [key, item.label]), state.trenchSurface)}
       ${field('Installed pole + foundation ($/pole)', 'poleInstalledCost', state.poleInstalledCost, { min: 0 })}
@@ -546,7 +645,7 @@ function renderStep4() {
       ${field('Monthly service charge ($)', 'monthlyServiceCharge', state.monthlyServiceCharge, { min: 0 })}
       ${field('Grid emissions (kg CO2e/kWh)', 'gridKgCo2ePerKwh', state.gridKgCo2ePerKwh, { min: 0, step: 0.01 })}
       ${field('Carbon value ($/metric ton)', 'carbonPricePerMetricTon', state.carbonPricePerMetricTon, { min: 0 })}
-    </div>
+    </div></details>
     <div class="comparison-grid subsection">
       <article class="alternative-card ${economicsResult.lifecycleSavings < 0 ? 'recommended' : ''}"><span class="eyebrow">GRID + TRENCHING</span><h3 class="money">${money(economicsResult.gridCapital)}</h3><p>Complete capital estimate</p>
         <strong>${money(economicsResult.gridLifecycle)}</strong><p>${state.analysisYears}-year lifecycle estimate</p>
@@ -563,17 +662,34 @@ const renderers = [null, renderStep1, renderStep2, renderStep3, renderStep4, ren
 
 function render() {
   updateCalculations();
-  document.querySelector('#stepContent').innerHTML = renderers[state.step]();
+  const guide = stepGuidance();
+  const workflow = getWorkflowState();
+  document.querySelector('#stepContent').innerHTML = `<div class="workflow-banner"><div class="workflow-number">${String(state.step).padStart(2, '0')}</div><div><span class="eyebrow">CURRENT OBJECTIVE</span><strong>${esc(guide.title)}</strong><p>${esc(guide.body)}</p></div></div>${renderers[state.step]()}`;
   document.querySelectorAll('.step-tab').forEach((button) => {
-    button.classList.toggle('active', Number(button.dataset.stepTarget) === state.step);
-    button.classList.toggle('complete', Number(button.dataset.stepTarget) < state.step);
+    const index = Number(button.dataset.stepTarget) - 1;
+    const active = index + 1 === state.step;
+    button.classList.toggle('active', active);
+    button.classList.toggle('complete', workflow.steps[index]);
+    button.classList.toggle('attention', !workflow.steps[index] && index < state.step);
+    button.setAttribute('aria-current', active ? 'step' : 'false');
+    button.innerHTML = `<span>${workflow.steps[index] ? '✓' : index + 1}</span><b>${esc(STEP_LABELS[index])}</b><small>${workflow.steps[index] ? 'Complete' : active ? 'In progress' : 'Review'}</small>`;
   });
   document.querySelector('#backButton').hidden = state.step === 1;
   document.querySelector('#nextButton').textContent = state.step === 5 ? 'Print report' : 'Continue';
   renderSummary();
+  renderProjectContext();
   wireStep();
   initializeVisuals();
   saveState();
+}
+
+function renderProjectContext() {
+  const workflow = getWorkflowState();
+  document.querySelector('#projectContextName').textContent = state.projectName || 'Untitled lighting project';
+  document.querySelector('#projectContextLocation').textContent = state.resolvedAddress || state.address || 'Location not confirmed';
+  const status = document.querySelector('#projectContextStatus');
+  status.textContent = workflow.decisionReady ? 'Decision ready' : `${workflow.completeCount}/4 workstreams complete`;
+  status.className = `context-status ${workflow.decisionReady ? 'ready' : ''}`;
 }
 
 function initializeVisuals() {
@@ -588,16 +704,17 @@ function renderSummary() {
   document.querySelector('#summaryProduct').textContent = record
     ? `${record.nominalLampW} W ${record.distribution} lighting package`
     : 'Select an IES lighting package';
+  const verdict = userFacingVerdict();
+  const workflow = getWorkflowState();
   document.querySelector('#summaryMetrics').innerHTML = [
     ['Poles', photometricResult.layout.poleCount],
     ['Actual spacing', `${round(photometricResult.layout.actualSpacing)} ft`],
-    ['Avg / min FC', `${round(photometricResult.avgFc, 2)} / ${round(photometricResult.minFc, 2)}`],
-    ['Panel / battery', `${state.panelWatts} W / ${state.batteryWh.toLocaleString()} Wh`],
+    ['Light level (avg / min)', `${round(photometricResult.avgFc, 2)} / ${round(photometricResult.minFc, 2)} FC`],
+    ['Panel / battery per unit', `${state.panelWatts} W / ${state.batteryWh.toLocaleString()} Wh`],
     ['Worst active month', solarResult.worstMonth?.month || '—'],
-    ['Reserve', `${round(solarResult.reserveDays)} days`],
-    ['Accessory allowance', `${round(solarResult.accessoryAllowanceWh)} Wh/day`],
-    ['Lifecycle verdict', economicsResult.recommendation],
-    ['Avoided carbon', `${round(sustainabilityResult.avoidedMetricTons)} t CO2e`],
+    ['Battery resilience', `${round(solarResult.reserveDays)} days`],
+    ['Lifecycle result', economicsResult.recommendation],
+    ['Carbon result', `${sustainabilityResult.avoidedMetricTons >= 0 ? 'Solar avoids' : 'Grid avoids'} ${round(Math.abs(sustainabilityResult.avoidedMetricTons))} t CO2e`],
   ].map(([label, value]) => `<div><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join('');
   const pass = selectedIES && solarResult.energyPass && solarResult.reservePass
     && photometricResult.avgFc >= state.avgFcTarget && photometricResult.minFc >= state.minFcTarget
@@ -605,9 +722,9 @@ function renderSummary() {
   const badge = document.querySelector('#confidenceBadge');
   badge.className = `badge ${pass ? 'success' : 'estimate'}`;
   badge.textContent = pass ? 'Model checks passed' : 'Design in progress';
-  document.querySelector('#summaryStatus').innerHTML = `<div class="summary-callout ${pass ? 'success' : 'warning'}">
-    <strong>${pass ? 'Ready for technical review' : 'Design needs attention'}</strong>
-    <span>${pass ? 'The configuration clears current model targets.' : 'Continue tuning the highlighted checks.'}</span></div>`;
+  document.querySelector('#summaryStatus').innerHTML = `<div class="summary-progress"><span><b>${workflow.completeCount}</b> of 4 workstreams complete</span><i><b style="width:${workflow.completeCount / 4 * 100}%"></b></i></div>
+    <div class="summary-callout ${pass ? 'success' : 'warning'}"><strong>${esc(verdict.title)}</strong><span>${esc(verdict.body)}</span></div>
+    <div class="source-key"><span><i class="verified"></i>Measured</span><span><i class="live"></i>Live source</span><span><i class="assumed"></i>Assumption</span></div>`;
 }
 
 function applyApplicationDefaults(key) {
@@ -677,13 +794,31 @@ function wireStep() {
       });
     });
   });
-  const refreshLocationData = document.querySelector('#refreshLocationData');
-  if (refreshLocationData) refreshLocationData.addEventListener('click', async () => {
-    refreshLocationData.disabled = true;
-    refreshLocationData.textContent = 'Loading location data...';
-    state.apiContext = await getLocationContext({
-      latitude: state.latitude, longitude: state.longitude, stateCode: state.stateCode,
-    });
+  const locateSite = document.querySelector('#locateSite');
+  if (locateSite) locateSite.addEventListener('click', async () => {
+    locateSite.disabled = true;
+    locateSite.textContent = 'Locating site...';
+    const addressInput = document.querySelector('[data-field="address"]');
+    if (addressInput) state.address = addressInput.value.trim();
+    try {
+      if (state.address) {
+        const location = await resolveAddress(state.address);
+        state.latitude = location.latitude;
+        state.longitude = location.longitude;
+        if (location.stateCode) state.stateCode = location.stateCode;
+        state.resolvedAddress = location.formattedAddress;
+        state.apiContext = { location: { ok: true, data: location } };
+      }
+      locateSite.textContent = 'Loading site evidence...';
+      const evidence = await getLocationContext({
+        latitude: state.latitude, longitude: state.longitude, stateCode: state.stateCode,
+      });
+      state.apiContext = { ...(state.apiContext || {}), ...evidence };
+      showToast('Location confirmed and site evidence refreshed.', 'success');
+    } catch (error) {
+      state.apiContext = { ...(state.apiContext || {}), location: { ok: false, error: error.message } };
+      showToast(`Location evidence could not be completed: ${error.message}`, 'warning');
+    }
     const monthly = state.apiContext.solar?.data?.monthly;
     if (monthly) {
       const keys = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
@@ -702,7 +837,22 @@ document.querySelectorAll('.step-tab').forEach((button) => {
 document.querySelector('#backButton').addEventListener('click', () => { state.step = Math.max(1, state.step - 1); render(); });
 document.querySelector('#nextButton').addEventListener('click', () => {
   if (state.step === 5) window.print();
-  else { state.step = Math.min(5, state.step + 1); render(); }
+  else {
+    const workflow = getWorkflowState();
+    if (!workflow.steps[state.step - 1] && state.step <= 2) {
+      showToast(state.step === 1
+        ? 'You can continue, but confirm the project name and location for a defensible report.'
+        : 'You can continue, but the lighting design has not cleared its selected targets.', 'warning');
+    }
+    state.step = Math.min(5, state.step + 1);
+    render();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+});
+document.querySelector('#viewDecisionBrief').addEventListener('click', () => {
+  state.step = 5;
+  render();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 document.querySelector('#resetProject').addEventListener('click', () => {
   if (!window.confirm('Start a new project and clear the saved design?')) return;
