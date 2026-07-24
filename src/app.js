@@ -15,9 +15,10 @@ import {
   sizeSolarSystem,
 } from './solar-engine.js';
 import { compareProjectAlternatives, SURFACE_TYPES } from './project-economics.js';
-import { calculateSustainability } from './sustainability.js';
+import { calculateSustainability, LEED_PATHWAYS } from './sustainability.js';
 import { getApiStatus, getLocationContext } from './api-client.js';
 import { drawPhotometricPlan, drawSideElevation, renderSiteMap } from './visualization.js';
+import { buildDecisionIntelligence } from './decision-intelligence.js';
 
 const STORAGE_KEY = 'akrd-lighting-engine-v3';
 const state = loadState();
@@ -28,6 +29,7 @@ let solarResult = null;
 let economicsResult = null;
 let sustainabilityResult = null;
 let apiStatus = {};
+let decisionResult = null;
 
 function initialState() {
   return {
@@ -249,6 +251,14 @@ function updateCalculations() {
     batteryLifeYears: state.batteryLifeYears,
     carbonPricePerMetricTon: state.carbonPricePerMetricTon,
   });
+  decisionResult = buildDecisionIntelligence({
+    state,
+    economics: economicsResult,
+    sustainability: sustainabilityResult,
+    photometric: photometricResult,
+    solar: solarResult,
+    registryRecord: registry.records.find((record) => record.id === state.fixtureId),
+  });
 }
 
 function field(label, id, value, options = {}) {
@@ -416,7 +426,16 @@ function renderStep5() {
     <div class="section-intro"><span class="eyebrow">04 — DESIGN VERDICT</span><h2>${esc(state.projectName || 'System recommendation')}</h2>
       <p>One decision view across photometric performance, seasonal energy balance, storage, and electrical capacity.</p></div>
     <div class="report-hero"><span class="eyebrow">COMPLETE PROJECT VERDICT</span><h3>${esc(economicsResult.recommendation)}</h3>
-      <p>${money(economicsResult.lifecycleSavings)} estimated ${state.analysisYears}-year lifecycle savings and ${round(sustainabilityResult.avoidedMetricTons)} metric tons CO2e avoided versus the modeled grid-and-trenching baseline.</p></div>
+      <p>${money(Math.abs(economicsResult.lifecycleSavings))} ${state.analysisYears}-year lifecycle advantage for ${economicsResult.lifecycleSavings >= 0 ? 'solar' : 'grid'} and ${round(Math.abs(sustainabilityResult.avoidedMetricTons))} metric tons CO2e advantage for ${sustainabilityResult.avoidedMetricTons >= 0 ? 'solar' : 'grid'} under current assumptions.</p></div>
+    <div class="decision-readiness"><span class="eyebrow">DECISION READINESS</span><strong>${esc(decisionResult.decisionReadiness)}</strong><p>The engine tests the same proposal independently for lighting, worst-month energy, lifecycle cost and lifecycle carbon.</p></div>
+    <div class="decision-tests" aria-label="Four independent decision tests">
+      ${[
+        ['Lighting', decisionResult.tests.lightingPass, 'IES target'],
+        ['Energy', decisionResult.tests.solarPass, 'Worst month + reserve'],
+        ['Financial', decisionResult.tests.financialPass, `${state.analysisYears}-year lifecycle`],
+        ['Carbon', decisionResult.tests.carbonPass, 'Net lifecycle CO2e'],
+      ].map(([label, pass, detail]) => `<div class="${pass ? 'pass' : 'fail'}"><i>${pass ? 'PASS' : 'CHALLENGE'}</i><strong>${label}</strong><span>${detail}</span></div>`).join('')}
+    </div>
     <div class="score-grid">
       <article class="score-card ${statusClass(photometricResult.avgFc >= state.avgFcTarget && photometricResult.minFc >= state.minFcTarget)}"><span>Lighting</span><strong>${round(photometricResult.avgFc, 2)} / ${round(photometricResult.minFc, 2)} FC</strong><small>Average / minimum</small></article>
       <article class="score-card ${statusClass(solarResult.energyPass)}"><span>Worst month</span><strong>${esc(solarResult.worstMonth?.month || '—')}</strong><small>${round(solarResult.worstMonth?.marginPercent)}% daily margin</small></article>
@@ -435,9 +454,9 @@ function renderStep5() {
       <article class="result-card"><h3>GHG and carbon case</h3><table class="report-table">
         <tr><th>Grid baseline</th><td>${round(sustainabilityResult.gridTotalKg / 1000)} t CO2e</td></tr>
         <tr><th>Solar alternative</th><td>${round(sustainabilityResult.solarTotalKg / 1000)} t CO2e</td></tr>
-        <tr><th>Net avoided</th><td>${round(sustainabilityResult.avoidedMetricTons)} t CO2e</td></tr>
-        <tr><th>Reduction</th><td>${round(sustainabilityResult.reductionPercent)}%</td></tr>
-        <tr><th>Carbon value</th><td>${money(sustainabilityResult.carbonValue)}</td></tr>
+        <tr><th>Net difference (solar vs grid)</th><td>${round(sustainabilityResult.avoidedMetricTons)} t CO2e</td></tr>
+        <tr><th>Change from grid baseline</th><td>${round(sustainabilityResult.reductionPercent)}%</td></tr>
+        <tr><th>Value of net difference</th><td>${money(sustainabilityResult.carbonValue)}</td></tr>
         <tr><th>Battery replacements</th><td>${sustainabilityResult.replacements}</td></tr>
       </table><p class="muted">Avoided emissions are reported separately from any purchased, verified carbon offsets.</p></article>
     </div>
@@ -460,10 +479,45 @@ function renderStep5() {
         }).join('')}
       </div><div class="legend"><span><i class="production"></i>Solar production</span><span><i class="demand"></i>Energy demand</span></div></article>
     </div>
+    <div class="results-columns">
+      <article class="result-card"><h3>Civil-cost sensitivity</h3><p class="muted">Lifecycle result when trenching and restoration unit costs move ±30%.</p>
+        <div class="sensitivity-chart">${decisionResult.sensitivity.map((scenario) => {
+          const extent = Math.max(...decisionResult.sensitivity.map((item) => Math.abs(item.savings)), 1);
+          const width = Math.abs(scenario.savings) / extent * 50;
+          return `<div class="sensitivity-row"><span>${esc(scenario.label)}</span><div class="sensitivity-track"><i class="${scenario.savings >= 0 ? 'solar' : 'grid'}" style="width:${width}%"></i></div><strong>${scenario.savings >= 0 ? 'Solar +' : 'Grid +'}${money(Math.abs(scenario.savings))}</strong></div>`;
+        }).join('')}</div>
+        <p class="truth-callout">${decisionResult.breakEvenAdditionalGridCost > 0
+          ? `Solar reaches lifecycle break-even if additional verified grid/civil costs exceed ${money(decisionResult.breakEvenAdditionalGridCost)}.`
+          : 'Solar is already at or beyond lifecycle break-even in the planning case.'}</p>
+      </article>
+      <article class="result-card"><h3>Community context</h3>${renderCommunityContext()}</article>
+    </div>
+    <article class="result-card evidence-card"><div class="evidence-heading"><div><span class="eyebrow">TRUTH LEDGER</span><h3>Evidence, assumptions and confidence</h3></div><p>Every major claim carries its data class and source.</p></div>
+      <div class="table-wrap"><table class="report-table evidence-table"><thead><tr><th>Topic</th><th>Classification</th><th>Current value</th><th>Source</th><th>Confidence</th></tr></thead><tbody>
+        ${decisionResult.evidence.map((item) => `<tr><td><strong>${esc(item.topic)}</strong></td><td>${esc(item.classification)}</td><td>${esc(item.value)}</td><td>${esc(item.source)}</td><td><span class="confidence ${item.confidence.toLowerCase()}">${esc(item.confidence)}</span></td></tr>`).join('')}
+      </tbody></table></div>
+    </article>
+    <article class="result-card framework-card"><span class="eyebrow">FRAMEWORK SCREENING</span><h3>Potential sustainability alignment</h3>
+      <div class="framework-grid">${LEED_PATHWAYS.map((item) => `<div><i aria-hidden="true">+</i><span>${esc(item)}</span></div>`).join('')}</div>
+      <p class="muted">These are potential contribution pathways for project-team review—not promised LEED points, certification, carbon offsets or regulatory approval.</p>
+    </article>
+    ${decisionResult.challenges.length ? `<div class="challenge-panel"><span class="eyebrow">WHAT THE MODEL WILL NOT HIDE</span><h3>Material challenges</h3><ul>${decisionResult.challenges.map((item) => `<li>${esc(item)}</li>`).join('')}</ul></div>` : ''}
     <div class="notice ${warnings.length ? 'warning' : 'success'}"><strong>${warnings.length ? 'Review required' : 'Planning checks passed'}</strong>
       ${warnings.length ? `<ul>${warnings.map((warning) => `<li>${esc(warning)}</li>`).join('')}</ul>` : '<p>The configured model meets the selected planning targets. Final hardware limits and field conditions still require manufacturer and engineering confirmation.</p>'}</div>
     <div class="disclaimer"><strong>Decision-support model—not stamped engineering.</strong> Final product compatibility, structural design, electrical protection, battery temperature limits, and regulatory compliance must be confirmed by the responsible manufacturer and design professional.</div>
   </section>`;
+}
+
+function renderCommunityContext() {
+  const census = state.apiContext?.census?.data;
+  if (!census) return '<p class="muted">Refresh location data to attach tract-level ACS estimates and margins of error. Community characteristics inform context; they do not determine lighting or safety requirements.</p>';
+  const metric = (label, item) => `<div><dt>${esc(label)}</dt><dd>${Number(item?.estimate || 0).toLocaleString()}<small> ±${Number(item?.marginOfError || 0).toLocaleString()} MOE</small></dd></div>`;
+  return `<p>${esc(census.geographyName || `Census tract ${census.geography?.tract || ''}`)}</p><dl class="community-metrics">
+    ${metric('Population', census.population)}
+    ${metric('Households without a vehicle', census.zeroVehicleHouseholds)}
+    ${metric('Workers using public transit', census.publicTransitWorkers)}
+    ${metric('People below poverty level', census.belowPoverty)}
+  </dl><p class="muted">${esc(census.note || 'ACS estimates include margins of error.')}</p>`;
 }
 
 const money = (value) => new Intl.NumberFormat('en-US', {
@@ -494,10 +548,10 @@ function renderStep4() {
       ${field('Carbon value ($/metric ton)', 'carbonPricePerMetricTon', state.carbonPricePerMetricTon, { min: 0 })}
     </div>
     <div class="comparison-grid subsection">
-      <article class="alternative-card"><span class="eyebrow">GRID + TRENCHING</span><h3 class="money">${money(economicsResult.gridCapital)}</h3><p>Complete capital estimate</p>
+      <article class="alternative-card ${economicsResult.lifecycleSavings < 0 ? 'recommended' : ''}"><span class="eyebrow">GRID + TRENCHING</span><h3 class="money">${money(economicsResult.gridCapital)}</h3><p>Complete capital estimate</p>
         <strong>${money(economicsResult.gridLifecycle)}</strong><p>${state.analysisYears}-year lifecycle estimate</p>
         <small>${economicsResult.trenchLengthFt.toLocaleString()} ft disturbed; ${money(economicsResult.landscapeRestorationCost)} landscape restoration.</small></article>
-      <article class="alternative-card recommended"><span class="eyebrow">PROVIDER-NEUTRAL SOLAR</span><h3 class="money">${money(economicsResult.solarCapital)}</h3><p>Complete capital estimate</p>
+      <article class="alternative-card ${economicsResult.lifecycleSavings >= 0 ? 'recommended' : ''}"><span class="eyebrow">PROVIDER-NEUTRAL SOLAR</span><h3 class="money">${money(economicsResult.solarCapital)}</h3><p>Complete capital estimate</p>
         <strong>${money(economicsResult.solarLifecycle)}</strong><p>${state.analysisYears}-year lifecycle estimate</p>
         <small>Minimum modeled requirement: ${Math.ceil(solarResult.requiredPanelWatts)} W panel and ${Math.ceil(solarResult.requiredBatteryWh).toLocaleString()} Wh nominal battery.</small></article>
     </div>

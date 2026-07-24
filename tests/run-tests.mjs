@@ -5,6 +5,7 @@ import { buildLinearLayout } from '../src/photometry.js';
 import { evaluateElectricalLimits, lightingWhPerNight, sizeSolarSystem } from '../src/solar-engine.js';
 import { compareProjectAlternatives } from '../src/project-economics.js';
 import { calculateSustainability } from '../src/sustainability.js';
+import { buildDecisionIntelligence } from '../src/decision-intelligence.js';
 
 const samplePath = new URL('../photometry/ies/46W/46W-T2M-L082110603.ies', import.meta.url);
 const sample = parseIES(await readFile(samplePath, 'utf8'), samplePath.pathname);
@@ -77,5 +78,27 @@ const carbon = calculateSustainability({
 });
 assert.equal(carbon.replacements, 2);
 assert.ok(carbon.avoidedKg > 0);
+
+const decision = buildDecisionIntelligence({
+  state: {
+    avgFcTarget: 0.5, minFcTarget: 0.1, utilityRatePerKwh: 0.15,
+    clearSouth: 'confirmed', apiContext: {},
+  },
+  economics: {
+    trenchAndRestorationCost: 20000, gridLifecycle: 100000,
+    lifecycleSavings: 25000, trenchLengthFt: 200,
+  },
+  sustainability: { avoidedKg: 5000, avoidedMetricTons: 5 },
+  photometric: { avgFc: 0.8, minFc: 0.2 },
+  solar: {
+    energyPass: true, reservePass: true,
+    worstMonth: { psh: 3.4, month: 'December' },
+  },
+  registryRecord: { testId: 'TEST-1', testLab: 'Lab', path: 'fixture.ies' },
+});
+assert.equal(decision.tests.lightingPass, true);
+assert.equal(decision.tests.financialPass, true);
+assert.equal(decision.sensitivity.length, 3);
+assert.equal(decision.challenges.length, 0);
 
 console.log('All lighting-engine tests passed.');

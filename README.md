@@ -22,6 +22,11 @@ A browser-based planning tool that connects measured luminaire photometry with s
 - GHG reporting separates project emissions, avoided emissions, and optional purchased carbon offsets.
 - The report surfaces potential LEED pathways without promising certification or points.
 - An immersive 3D site workspace is prepared for Google Maps 3D, Places, Solar data layers, and Census context.
+- The civic decision brief applies four independent tests: lighting, worst-month energy, lifecycle cost, and lifecycle carbon.
+- A truth ledger labels measured, sourced, assumed, user-entered, and modeled evidence with confidence and provenance.
+- Civil-cost sensitivity shows whether the recommendation survives ±30% trenching and restoration uncertainty.
+- Census community context includes ACS estimates and 90% confidence margins of error for population, zero-vehicle households, public-transit commuters, and poverty context.
+- Material challenges remain visible even when other dimensions favor solar.
 
 ## Run locally
 

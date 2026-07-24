@@ -59,7 +59,10 @@ function send(res, status, body, type = 'text/plain; charset=utf-8', headers = {
 }
 
 function sendJson(res, status, value) {
-  send(res, status, JSON.stringify(value), 'application/json; charset=utf-8');
+  const documented = value && typeof value === 'object' && value.source
+    ? { ...value, retrievedAt: new Date().toISOString() }
+    : value;
+  send(res, status, JSON.stringify(documented), 'application/json; charset=utf-8');
 }
 
 async function body(req) {
@@ -163,13 +166,46 @@ async function api(req, res, url) {
       if (!tract) return sendJson(res, 404, { error: 'No Census tract was found.' });
       const acs = new URL('https://api.census.gov/data/2024/acs/acs5');
       acs.search = new URLSearchParams({
-        get: 'NAME,B01003_001E,B01003_001M',
+        get: [
+          'NAME',
+          'B01003_001E', 'B01003_001M',
+          'B08201_001E', 'B08201_001M', 'B08201_002E', 'B08201_002M',
+          'B08301_001E', 'B08301_001M', 'B08301_010E', 'B08301_010M',
+          'B17001_001E', 'B17001_001M', 'B17001_002E', 'B17001_002M',
+        ].join(','),
         for: `tract:${tract.TRACT}`, in: `state:${tract.STATE} county:${tract.COUNTY}`, key: env.CENSUS_API_KEY,
       });
       const rows = await proxyJson(acs);
+      const headers = rows?.[0] || [];
+      const values = rows?.[1] || [];
+      const value = (name) => Number(values[headers.indexOf(name)]);
+      const metric = (estimate, margin) => ({ estimate: value(estimate), marginOfError: value(margin) });
+      const households = metric('B08201_001E', 'B08201_001M');
+      const zeroVehicle = metric('B08201_002E', 'B08201_002M');
+      const workers = metric('B08301_001E', 'B08301_001M');
+      const transit = metric('B08301_010E', 'B08301_010M');
+      const povertyUniverse = metric('B17001_001E', 'B17001_001M');
+      const belowPoverty = metric('B17001_002E', 'B17001_002M');
       return sendJson(res, 200, {
         source: '2024 ACS 5-year', geography: { state: tract.STATE, county: tract.COUNTY, tract: tract.TRACT },
-        population: { estimate: Number(rows?.[1]?.[1]), marginOfError: Number(rows?.[1]?.[2]) },
+        geographyName: values[headers.indexOf('NAME')],
+        population: metric('B01003_001E', 'B01003_001M'),
+        households,
+        zeroVehicleHouseholds: {
+          ...zeroVehicle,
+          percent: households.estimate > 0 ? zeroVehicle.estimate / households.estimate * 100 : null,
+        },
+        workers,
+        publicTransitWorkers: {
+          ...transit,
+          percent: workers.estimate > 0 ? transit.estimate / workers.estimate * 100 : null,
+        },
+        povertyUniverse,
+        belowPoverty: {
+          ...belowPoverty,
+          percent: povertyUniverse.estimate > 0 ? belowPoverty.estimate / povertyUniverse.estimate * 100 : null,
+        },
+        note: 'ACS values are survey estimates. Margins of error use the ACS 90% confidence level.',
       });
     }
     if (url.pathname === '/api/electricity-rate') {
