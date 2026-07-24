@@ -48,15 +48,61 @@ export function buildManualLayout({
   const longitude = Number(centerLng);
   const feetPerDegreeLat = 364000;
   const feetPerDegreeLng = feetPerDegreeLat * Math.max(0.2, Math.cos(latitude * Math.PI / 180));
-  const luminaires = (poles || []).map((pole) => ({
-    x: Number(lengthFt) / 2 + (Number(pole.lng) - longitude) * feetPerDegreeLng,
-    y: Number(widthFt) / 2 + (Number(pole.lat) - latitude) * feetPerDegreeLat,
+  const world = (poles || []).map((pole) => ({
+    east: (Number(pole.lng) - longitude) * feetPerDegreeLng,
+    north: (Number(pole.lat) - latitude) * feetPerDegreeLat,
+  }));
+  const meanEast = world.reduce((total, point) => total + point.east, 0) / Math.max(1, world.length);
+  const meanNorth = world.reduce((total, point) => total + point.north, 0) / Math.max(1, world.length);
+  const covariance = world.reduce((total, point) => {
+    const east = point.east - meanEast;
+    const north = point.north - meanNorth;
+    total.east += east * east;
+    total.north += north * north;
+    total.cross += east * north;
+    return total;
+  }, { east: 0, north: 0, cross: 0 });
+  let rotationRad = world.length > 1
+    ? 0.5 * Math.atan2(2 * covariance.cross, covariance.east - covariance.north)
+    : 0;
+  if (world.length > 1) {
+    const directionEast = world.at(-1).east - world[0].east;
+    const directionNorth = world.at(-1).north - world[0].north;
+    if (directionEast * Math.cos(rotationRad) + directionNorth * Math.sin(rotationRad) < 0) {
+      rotationRad += Math.PI;
+    }
+  }
+  const projected = world.map((point) => {
+    const east = point.east - meanEast;
+    const north = point.north - meanNorth;
+    return {
+      along: east * Math.cos(rotationRad) + north * Math.sin(rotationRad),
+      cross: -east * Math.sin(rotationRad) + north * Math.cos(rotationRad),
+    };
+  });
+  const alongValues = projected.map((point) => point.along);
+  const crossValues = projected.map((point) => point.cross);
+  const alongMin = Math.min(...alongValues, 0);
+  const alongMax = Math.max(...alongValues, 0);
+  const crossMin = Math.min(...crossValues, 0);
+  const crossMax = Math.max(...crossValues, 0);
+  const alongRange = alongMax - alongMin;
+  const crossRange = crossMax - crossMin;
+  const alongPadding = Math.max(10, Number(mountHeightFt) * 0.75);
+  const crossPadding = Math.max(2, Number(widthFt) / 2);
+  const siteLengthFt = Math.max(Number(lengthFt), alongRange + alongPadding * 2);
+  const siteWidthFt = Math.max(Number(widthFt), crossRange + crossPadding * 2);
+  const xOffset = (siteLengthFt - alongRange) / 2;
+  const yOffset = (siteWidthFt - crossRange) / 2;
+  const luminaires = projected.map((point) => ({
+    x: xOffset + point.along - alongMin,
+    y: yOffset + point.cross - crossMin,
     z: Number(mountHeightFt),
     headingDeg: 90,
     outputFraction,
   }));
-  const distances = luminaires.slice(1).map((pole, index) =>
-    Math.hypot(pole.x - luminaires[index].x, pole.y - luminaires[index].y));
+  const distances = world.slice(1).map((point, index) =>
+    Math.hypot(point.east - world[index].east, point.north - world[index].north));
   const actualSpacing = distances.length
     ? distances.reduce((total, distance) => total + distance, 0) / distances.length
     : 0;
@@ -66,6 +112,10 @@ export function buildManualLayout({
     poleCount: luminaires.length,
     actualSpacing,
     placement: 'manual',
+    routeLengthFt: distances.reduce((total, distance) => total + distance, 0),
+    siteLengthFt,
+    siteWidthFt,
+    rotationDeg: rotationRad * 180 / Math.PI,
   };
 }
 

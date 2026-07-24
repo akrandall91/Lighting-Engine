@@ -25,6 +25,27 @@ const manualLayout = buildManualLayout({
 assert.equal(manualLayout.poleCount, 2);
 assert.ok(manualLayout.actualSpacing > 50 && manualLayout.actualSpacing < 70);
 assert.equal(manualLayout.luminaires[0].outputFraction, 0.8);
+assert.ok(manualLayout.routeLengthFt > 50);
+assert.ok(manualLayout.luminaires.every((pole) =>
+  pole.x >= 0 && pole.x <= manualLayout.siteLengthFt
+  && pole.y >= 0 && pole.y <= manualLayout.siteWidthFt));
+
+const mappedCurve = buildManualLayout({
+  poles: [
+    { lat: 35.0000, lng: -80.0000 },
+    { lat: 35.0003, lng: -79.9998 },
+    { lat: 35.0005, lng: -79.9995 },
+    { lat: 35.0007, lng: -79.9993 },
+    { lat: 35.0010, lng: -79.9991 },
+  ],
+  centerLat: 35, centerLng: -80, lengthFt: 240, widthFt: 16,
+  mountHeightFt: 20,
+});
+assert.ok(mappedCurve.siteLengthFt > 240, 'Mapped corridor should expand when placed poles exceed input length');
+assert.ok(mappedCurve.siteWidthFt >= 16);
+assert.ok(mappedCurve.luminaires.every((pole) =>
+  pole.x >= 0 && pole.x <= mappedCurve.siteLengthFt
+  && pole.y >= 0 && pole.y <= mappedCurve.siteWidthFt));
 
 const motionWh = lightingWhPerNight({
   lampWatts: 100, lampCount: 1, nightHours: 10, schedule: 'motion',

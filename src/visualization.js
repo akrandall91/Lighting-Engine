@@ -133,6 +133,8 @@ export function drawPhotometricPlan(canvas, state, result) {
   const width = canvas.width;
   const height = canvas.height;
   const pad = 52;
+  const siteLengthFt = Number(result.lengthFt || state.lengthFt);
+  const siteWidthFt = Number(result.widthFt || state.widthFt);
   const plan = { x: pad, y: pad, w: width - pad * 2, h: height - pad * 2 };
   context.clearRect(0, 0, width, height);
   context.fillStyle = '#111715';
@@ -145,14 +147,14 @@ export function drawPhotometricPlan(canvas, state, result) {
   const cellW = plan.w / Math.max(1, xs.length - 1);
   const cellH = plan.h / Math.max(1, ys.length - 1);
   values.forEach((point) => {
-    const x = plan.x + point.x / state.lengthFt * plan.w;
-    const y = plan.y + point.y / state.widthFt * plan.h;
+    const x = plan.x + point.x / siteLengthFt * plan.w;
+    const y = plan.y + point.y / siteWidthFt * plan.h;
     context.fillStyle = colorForFc(point.fc, result.maxFc);
     context.fillRect(x - cellW / 2, y - cellH / 2, cellW + 1, cellH + 1);
   });
   result.layout.luminaires.forEach((pole, index) => {
-    const x = plan.x + pole.x / state.lengthFt * plan.w;
-    const y = plan.y + pole.y / state.widthFt * plan.h;
+    const x = plan.x + pole.x / siteLengthFt * plan.w;
+    const y = plan.y + pole.y / siteWidthFt * plan.h;
     context.fillStyle = '#fff';
     context.strokeStyle = '#111715';
     context.lineWidth = 2;
@@ -170,7 +172,7 @@ export function drawPhotometricPlan(canvas, state, result) {
   context.fillStyle = '#fff';
   context.textAlign = 'left';
   context.font = '700 15px system-ui';
-  context.fillText(`${result.avgFc.toFixed(2)} FC average · ${result.minFc.toFixed(2)} FC minimum`, plan.x, 28);
+  context.fillText(`${result.avgFc.toFixed(2)} FC average · ${result.minFc.toFixed(2)} FC minimum · ${siteLengthFt.toFixed(0)} × ${siteWidthFt.toFixed(0)} ft analysis`, plan.x, 28);
 }
 
 export function drawSideElevation(canvas, state, result) {
@@ -229,7 +231,7 @@ export function drawSideElevation(canvas, state, result) {
   });
   context.fillStyle = '#fff';
   context.font = '700 14px system-ui';
-  context.fillText(`${state.mountingHeightFt} ft mounting height · ${result.layout.poleCount} poles total`, 20, 25);
+  context.fillText(`Conceptual elevation · ${state.mountingHeightFt} ft mounting height · ${result.layout.poleCount} poles total`, 20, 25);
 }
 
 function escapeText(value) {

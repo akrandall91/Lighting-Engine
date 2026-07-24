@@ -270,9 +270,13 @@ function updateCalculations() {
     });
   }
   layout.luminaires.forEach((luminaire) => { luminaire.outputFraction = state.outputPercent / 100; });
+  const analysisSite = {
+    lengthFt: layout.siteLengthFt || state.lengthFt,
+    widthFt: layout.siteWidthFt || state.widthFt,
+  };
   photometricResult = selectedIES
-    ? { ...calculateGrid(selectedIES, layout, { lengthFt: state.lengthFt, widthFt: state.widthFt }), layout }
-    : { avgFc: 0, minFc: 0, maxFc: 0, layout };
+    ? { ...calculateGrid(selectedIES, layout, analysisSite), layout, ...analysisSite }
+    : { avgFc: 0, minFc: 0, maxFc: 0, layout, ...analysisSite };
 
   const accessories = state.accessories.map((item) => ({ ...item }));
   solarResult = sizeSolarSystem({
@@ -402,7 +406,7 @@ function renderStep1() {
         </div>
       </div>
       <div class="placement-bar ${state.polePlacementMode ? 'active' : ''}">
-        <div><i>${state.polePlacementMode ? '+' : (state.manualPoles?.length || 0)}</i><span><strong>${state.polePlacementMode ? 'Placement mode is on' : state.manualPoles?.length ? 'Manual pole layout' : 'Calculated pole layout'}</strong><small>${state.polePlacementMode ? 'Click the map to add poles. Drag any placed pole to refine its position.' : state.manualPoles?.length ? `${state.manualPoles.length} placed poles drive lighting, energy, cost, and carbon calculations.` : 'Turn on placement mode to replace the calculated layout.'}</small></span></div>
+        <div><i>${state.polePlacementMode ? '+' : (state.manualPoles?.length || 0)}</i><span><strong>${state.polePlacementMode ? 'Placement mode is on' : state.manualPoles?.length ? 'Manual pole layout' : 'Calculated pole layout'}</strong><small>${state.polePlacementMode ? 'Click the map to add poles. Drag any placed pole to refine its position.' : state.manualPoles?.length ? `${state.manualPoles.length} placed poles · ${round(photometricResult.layout.routeLengthFt)} ft mapped route · ${round(photometricResult.lengthFt)} × ${round(photometricResult.widthFt)} ft analysis area.` : 'Turn on placement mode to replace the calculated layout.'}</small></span></div>
         <div class="placement-actions">
           <button type="button" class="text-button" id="undoPole" ${state.manualPoles?.length ? '' : 'disabled'}>Undo last</button>
           <button type="button" class="text-button danger" id="useCalculatedPoles" ${state.manualPoles?.length ? '' : 'disabled'}>Use calculated layout</button>
@@ -465,6 +469,7 @@ function renderStep2() {
       <div><span>Average</span><strong>${round(photometricResult.avgFc, 2)} FC</strong></div>
       <div><span>Minimum</span><strong>${round(photometricResult.minFc, 2)} FC</strong></div>
     </div>
+    ${photometricResult.layout.placement === 'manual' ? `<div class="mapped-geometry"><span><b>${round(photometricResult.layout.routeLengthFt)} ft</b> mapped route</span><span><b>${round(photometricResult.lengthFt)} × ${round(photometricResult.widthFt)} ft</b> aligned analysis area</span><span><b>${round(photometricResult.layout.rotationDeg)}°</b> map alignment</span></div>` : ''}
     <div class="plain-result ${photometricResult.avgFc >= state.avgFcTarget && photometricResult.minFc >= state.minFcTarget ? 'pass' : 'attention'}">
       <i>${photometricResult.avgFc >= state.avgFcTarget && photometricResult.minFc >= state.minFcTarget ? '✓' : '!'}</i><div><strong>${photometricResult.avgFc >= state.avgFcTarget && photometricResult.minFc >= state.minFcTarget ? 'The lighting target is met' : 'The lighting target needs adjustment'}</strong>
       <p>${photometricResult.avgFc >= state.avgFcTarget && photometricResult.minFc >= state.minFcTarget
