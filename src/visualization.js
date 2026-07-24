@@ -33,6 +33,10 @@ async function loadGoogleMaps() {
 }
 
 function poleCoordinates(state, layout) {
+  if (Array.isArray(state.manualPoles) && state.manualPoles.length) {
+    return state.manualPoles.map((pole) => ({ lat: Number(pole.lat), lng: Number(pole.lng) }));
+  }
+  if (state.polePlacementMode) return [];
   const latitude = Number(state.latitude);
   const longitude = Number(state.longitude);
   const feetPerDegreeLat = 364000;
@@ -43,7 +47,7 @@ function poleCoordinates(state, layout) {
   }));
 }
 
-export async function renderSiteMap(container, state, layout) {
+export async function renderSiteMap(container, state, layout, options = {}) {
   if (!container) return;
   try {
     const maps = await loadGoogleMaps();
@@ -54,6 +58,16 @@ export async function renderSiteMap(container, state, layout) {
       mapTypeControl: true, streetViewControl: true, rotateControl: true,
       fullscreenControl: true, zoomControl: true,
     });
+    if (state.polePlacementMode) {
+      siteMap.setOptions({ draggableCursor: 'crosshair' });
+      siteMap.addListener('click', (event) => {
+        if (!event.latLng || typeof options.onPolesChange !== 'function') return;
+        options.onPolesChange([...(state.manualPoles || []), {
+          lat: event.latLng.lat(),
+          lng: event.latLng.lng(),
+        }]);
+      });
+    }
     siteOverlays.forEach((overlay) => overlay.setMap?.(null));
     siteOverlays = [];
     const coordinates = poleCoordinates(state, layout);
@@ -61,14 +75,23 @@ export async function renderSiteMap(container, state, layout) {
     coordinates.forEach((position, index) => {
       const marker = new maps.Marker({
         map: siteMap, position, title: `Pole ${index + 1} · ${Number(state.mountingHeightFt)} ft mounting height`,
+        draggable: Boolean(state.manualPoles?.length),
         icon: {
           path: maps.SymbolPath.CIRCLE, scale: 7, fillColor: '#c9ff5b',
           fillOpacity: 1, strokeColor: '#111715', strokeWeight: 2.5,
         },
       });
       marker.addListener('click', () => {
-        infoWindow.setContent(`<div class="map-popup"><strong>Pole ${index + 1}</strong><br>${Number(state.mountingHeightFt)} ft mounting height<br>${Number(layout.actualSpacingFt).toFixed(1)} ft calculated spacing</div>`);
+        infoWindow.setContent(`<div class="map-popup"><strong>Pole ${index + 1}</strong><br>${Number(state.mountingHeightFt)} ft mounting height<br>${Number(layout.actualSpacing || 0).toFixed(1)} ft ${state.manualPoles?.length ? 'average' : 'calculated'} spacing${state.manualPoles?.length ? '<br><small>Drag this marker to refine placement.</small>' : ''}</div>`);
         infoWindow.open({ map: siteMap, anchor: marker });
+      });
+      marker.addListener('dragend', (event) => {
+        if (!event.latLng || typeof options.onPolesChange !== 'function') return;
+        const next = state.manualPoles.map((pole, poleIndex) => poleIndex === index ? {
+          lat: event.latLng.lat(),
+          lng: event.latLng.lng(),
+        } : pole);
+        options.onPolesChange(next);
       });
       siteOverlays.push(marker);
     });
@@ -77,7 +100,7 @@ export async function renderSiteMap(container, state, layout) {
       const halfLength = Number(state.lengthFt) / 2 / feetPerDegreeLng;
       const route = new maps.Polyline({
         map: siteMap,
-        path: [
+        path: state.manualPoles?.length ? coordinates : [
           { lat: center.lat, lng: center.lng - halfLength },
           { lat: center.lat, lng: center.lng + halfLength },
         ],

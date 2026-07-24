@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { parseIES, interpolateCandela } from '../src/ies-parser.js';
-import { buildLinearLayout } from '../src/photometry.js';
+import { buildLinearLayout, buildManualLayout } from '../src/photometry.js';
 import { evaluateElectricalLimits, lightingWhPerNight, sizeSolarSystem } from '../src/solar-engine.js';
 import { compareProjectAlternatives } from '../src/project-economics.js';
 import { calculateSustainability } from '../src/sustainability.js';
@@ -16,6 +16,15 @@ assert.ok(interpolateCandela(sample, 0, 45) >= 0, 'Candela interpolation should 
 const layout = buildLinearLayout({ lengthFt: 240, widthFt: 12, spacingFt: 60, mountHeightFt: 16 });
 assert.equal(layout.poleCount, 5, '240 ft at 60 ft spacing requires five endpoint-inclusive poles');
 assert.equal(layout.actualSpacing, 60);
+
+const manualLayout = buildManualLayout({
+  poles: [{ lat: 35, lng: -80.0001 }, { lat: 35, lng: -79.9999 }],
+  centerLat: 35, centerLng: -80, lengthFt: 240, widthFt: 12,
+  mountHeightFt: 16, outputFraction: 0.8,
+});
+assert.equal(manualLayout.poleCount, 2);
+assert.ok(manualLayout.actualSpacing > 50 && manualLayout.actualSpacing < 70);
+assert.equal(manualLayout.luminaires[0].outputFraction, 0.8);
 
 const motionWh = lightingWhPerNight({
   lampWatts: 100, lampCount: 1, nightHours: 10, schedule: 'motion',

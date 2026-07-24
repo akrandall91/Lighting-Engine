@@ -41,6 +41,34 @@ export function buildLinearLayout({ lengthFt, widthFt, spacingFt, mountHeightFt,
   return { luminaires, perRow, poleCount: luminaires.length, actualSpacing };
 }
 
+export function buildManualLayout({
+  poles, centerLat, centerLng, lengthFt, widthFt, mountHeightFt, outputFraction = 1,
+}) {
+  const latitude = Number(centerLat);
+  const longitude = Number(centerLng);
+  const feetPerDegreeLat = 364000;
+  const feetPerDegreeLng = feetPerDegreeLat * Math.max(0.2, Math.cos(latitude * Math.PI / 180));
+  const luminaires = (poles || []).map((pole) => ({
+    x: Number(lengthFt) / 2 + (Number(pole.lng) - longitude) * feetPerDegreeLng,
+    y: Number(widthFt) / 2 + (Number(pole.lat) - latitude) * feetPerDegreeLat,
+    z: Number(mountHeightFt),
+    headingDeg: 90,
+    outputFraction,
+  }));
+  const distances = luminaires.slice(1).map((pole, index) =>
+    Math.hypot(pole.x - luminaires[index].x, pole.y - luminaires[index].y));
+  const actualSpacing = distances.length
+    ? distances.reduce((total, distance) => total + distance, 0) / distances.length
+    : 0;
+  return {
+    luminaires,
+    perRow: luminaires.length,
+    poleCount: luminaires.length,
+    actualSpacing,
+    placement: 'manual',
+  };
+}
+
 export function calculateGrid(ies, layout, site, options = {}) {
   const stepFt = options.gridStepFt || Math.max(2, Math.min(5, site.widthFt / 8));
   const values = [];

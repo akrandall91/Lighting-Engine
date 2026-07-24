@@ -8,7 +8,7 @@ import {
   SOLAR_STYLES,
 } from './catalog.js';
 import { parseIES } from './ies-parser.js';
-import { buildLinearLayout, calculateGrid } from './photometry.js';
+import { buildLinearLayout, buildManualLayout, calculateGrid } from './photometry.js';
 import {
   evaluateElectricalLimits,
   remainingAccessoryAllowance,
@@ -42,6 +42,8 @@ function initialState() {
     longitude: -80,
     stateCode: 'NC',
     apiContext: {},
+    manualPoles: [],
+    polePlacementMode: false,
     lengthFt: 240,
     widthFt: 12,
     layout: 'one-side',
@@ -151,7 +153,7 @@ function stepGuidance() {
     {
       title: state.resolvedAddress ? 'Site evidence is connected' : 'Confirm the project location',
       body: state.resolvedAddress
-        ? 'Review the mapped pole corridor and operating season before moving to lighting.'
+        ? `${state.manualPoles?.length ? `${state.manualPoles.length} manually placed poles are controlling the model.` : 'Review the calculated pole corridor or place poles directly on the map.'} Confirm the operating season before moving to lighting.`
         : 'Name the project, enter an address, and load location evidence so every downstream result uses the correct place.',
     },
     {
@@ -248,7 +250,7 @@ async function loadSelectedIES() {
 }
 
 function updateCalculations() {
-  const layout = buildLinearLayout({
+  let layout = buildLinearLayout({
     lengthFt: state.lengthFt,
     widthFt: state.widthFt,
     spacingFt: state.spacingFt,
@@ -256,6 +258,17 @@ function updateCalculations() {
     layout: state.layout,
     setbackFt: state.setbackFt,
   });
+  if (Array.isArray(state.manualPoles) && state.manualPoles.length) {
+    layout = buildManualLayout({
+      poles: state.manualPoles,
+      centerLat: state.latitude,
+      centerLng: state.longitude,
+      lengthFt: state.lengthFt,
+      widthFt: state.widthFt,
+      mountHeightFt: state.mountingHeightFt,
+      outputFraction: state.outputPercent / 100,
+    });
+  }
   layout.luminaires.forEach((luminaire) => { luminaire.outputFraction = state.outputPercent / 100; });
   photometricResult = selectedIES
     ? { ...calculateGrid(selectedIES, layout, { lengthFt: state.lengthFt, widthFt: state.widthFt }), layout }
@@ -383,11 +396,21 @@ function renderStep1() {
       <div class="scene-toolbar">
         <div><span class="eyebrow">SITE EVIDENCE</span><strong>Mapped pole scene</strong>
           <small>${esc(state.resolvedAddress || 'Enter an address, then locate the project site.')}</small></div>
-        <button class="button primary scene-refresh" type="button" id="locateSite">Locate address + load evidence</button>
+        <div class="scene-toolbar-actions">
+          <button class="button ${state.polePlacementMode ? 'placement-active' : 'quiet'}" type="button" id="togglePolePlacement">${state.polePlacementMode ? 'Finish placing poles' : 'Place poles on map'}</button>
+          <button class="button primary scene-refresh" type="button" id="locateSite">Locate address + load evidence</button>
+        </div>
+      </div>
+      <div class="placement-bar ${state.polePlacementMode ? 'active' : ''}">
+        <div><i>${state.polePlacementMode ? '+' : (state.manualPoles?.length || 0)}</i><span><strong>${state.polePlacementMode ? 'Placement mode is on' : state.manualPoles?.length ? 'Manual pole layout' : 'Calculated pole layout'}</strong><small>${state.polePlacementMode ? 'Click the map to add poles. Drag any placed pole to refine its position.' : state.manualPoles?.length ? `${state.manualPoles.length} placed poles drive lighting, energy, cost, and carbon calculations.` : 'Turn on placement mode to replace the calculated layout.'}</small></span></div>
+        <div class="placement-actions">
+          <button type="button" class="text-button" id="undoPole" ${state.manualPoles?.length ? '' : 'disabled'}>Undo last</button>
+          <button type="button" class="text-button danger" id="useCalculatedPoles" ${state.manualPoles?.length ? '' : 'disabled'}>Use calculated layout</button>
+        </div>
       </div>
       <div class="scene-shell" aria-label="Satellite site map with calculated pole locations">
         <div id="siteMap" class="site-map"></div>
-        <div class="map-legend"><span><i></i>Calculated pole</span><span>${photometricResult?.layout?.poleCount || 0} poles · ${Number(state.spacingFt).toFixed(0)} ft target spacing</span></div>
+        <div class="map-legend"><span><i></i>${state.manualPoles?.length ? 'Placed pole' : 'Calculated pole'}</span><span>${photometricResult?.layout?.poleCount || 0} poles · ${state.manualPoles?.length ? `${round(photometricResult.layout.actualSpacing)} ft average spacing` : `${Number(state.spacingFt).toFixed(0)} ft target spacing`}</span></div>
       </div>
       <div class="api-pills scene-status" aria-label="Connected evidence services">
           <span>${apiStatus.googleMapsBrowser ? 'Google Maps configured' : 'Google Maps not configured'}</span>
@@ -694,7 +717,13 @@ function renderProjectContext() {
 
 function initializeVisuals() {
   const siteMap = document.querySelector('#siteMap');
-  if (siteMap) renderSiteMap(siteMap, state, photometricResult.layout);
+  if (siteMap) renderSiteMap(siteMap, state, photometricResult.layout, {
+    onPolesChange: (poles) => {
+      state.manualPoles = poles;
+      render();
+      showToast(`${poles.length} pole${poles.length === 1 ? '' : 's'} placed. Project calculations updated.`, 'success');
+    },
+  });
   drawPhotometricPlan(document.querySelector('#photometricPlan'), state, photometricResult);
   drawSideElevation(document.querySelector('#sideElevation'), state, photometricResult);
 }
@@ -793,6 +822,27 @@ function wireStep() {
         render();
       });
     });
+  });
+  const togglePolePlacement = document.querySelector('#togglePolePlacement');
+  if (togglePolePlacement) togglePolePlacement.addEventListener('click', () => {
+    state.polePlacementMode = !state.polePlacementMode;
+    render();
+    showToast(state.polePlacementMode
+      ? 'Placement mode enabled. Click the satellite map to add poles.'
+      : 'Pole placement finished. The manual layout remains active.', 'info');
+  });
+  const undoPole = document.querySelector('#undoPole');
+  if (undoPole) undoPole.addEventListener('click', () => {
+    state.manualPoles = state.manualPoles.slice(0, -1);
+    render();
+    showToast('Last pole placement removed.', 'info');
+  });
+  const useCalculatedPoles = document.querySelector('#useCalculatedPoles');
+  if (useCalculatedPoles) useCalculatedPoles.addEventListener('click', () => {
+    state.manualPoles = [];
+    state.polePlacementMode = false;
+    render();
+    showToast('Calculated pole layout restored.', 'info');
   });
   const locateSite = document.querySelector('#locateSite');
   if (locateSite) locateSite.addEventListener('click', async () => {
